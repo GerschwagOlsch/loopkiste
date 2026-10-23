@@ -1,0 +1,6 @@
+node_modules/
+tests/**/*.png
+tests/**/*.mp4
+tests/**/*.webm
+tests/**/*.wav
+.wrangler/

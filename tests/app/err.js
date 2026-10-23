@@ -1,0 +1,2 @@
+const {chromium}=require('playwright');(async()=>{const b=await chromium.launch();const p=await b.newPage();p.on('pageerror',e=>console.log('PE',e.message));p.on('console',m=>console.log('C',m.type(),m.text()));p.on('requestfailed',r=>console.log('RF',r.url(),r.failure()&&r.failure().errorText));
+await p.goto('http://localhost:8791/');await p.waitForTimeout(1500);console.log(await p.evaluate(()=>typeof window.__lk));await b.close()})()
