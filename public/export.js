@@ -1,13 +1,13 @@
 // Offline export: every track is rendered by its own instrument engine (same DSP as live), then mixed
 // through the same master chain as the live bus. Video = rendered mix + 9:16 canvas, recorded in real time.
 
-export async function exportAudio({P,segs,inst,TRACKS,eventsForStep,fade=true,stems=false,progress=()=>{}}){
+export async function exportAudio({P,segs,inst,TRACKS,eventsForStep,fade=true,stems=false,audible=null,progress=()=>{}}){
   const sr=48000,sd=60/P.bpm/4,ev={};TRACKS.forEach(t=>ev[t.id]=[]);
   let t=0;
   for(const seg of segs){const sc=P.scenes[seg.s];if(!sc)continue;const L=sc.bars*16;
     for(let r=0;r<seg.n;r++)for(let i=0;i<L;i++){for(const e of eventsForStep(P,sc,i,t,sd,P.swing,null))ev[e.track].push(e);t+=sd}}
   const total=t,tail=fade?0.05:2.5,dur=total+2.5,len=Math.ceil((total+tail)*sr);
-  const rendered=[];const active=TRACKS.filter(tr=>!P.tracks[tr.id].mute&&ev[tr.id].length&&inst[tr.id]&&inst[tr.id].eng);
+  const rendered=[];const active=TRACKS.filter(tr=>(audible?audible(tr.id):!P.tracks[tr.id].mute)&&ev[tr.id].length&&inst[tr.id]&&inst[tr.id].eng);
   let k=0;
   for(const tr of active){progress(k/(active.length+1),'Rendere '+tr.name+' …');
     const events=ev[tr.id].map(e=>tr.id==='drums'?{t:e.t,lane:e.lane,vel:e.vel}:{t:e.t,midi:e.midi,vel:e.vel,dur:e.dur});
@@ -82,4 +82,21 @@ export async function encodeMp3(buf,kbps=256,progress=()=>{}){
   for(let i=0;i<L.length;i+=block){const e=Math.min(L.length,i+block);const d=ch>1?enc.encodeBuffer(toI16(L,i,e),toI16(R,i,e)):enc.encodeBuffer(toI16(L,i,e));if(d.length)out.push(new Uint8Array(d));progress(e/L.length);await new Promise(r=>setTimeout(r,0))}
   const f=enc.flush();if(f.length)out.push(new Uint8Array(f));
   return new Blob(out,{type:'audio/mpeg'});
+}
+
+// Integrated loudness, BS.1770-style: K-weighting (high shelf ≈+4 dB above 1.5 kHz, high-pass ≈38 Hz),
+// mean square over 400 ms blocks with absolute gate −70 LUFS and relative gate −10 LU.
+export async function loudness(buf){
+  const sr=buf.sampleRate,off=new OfflineAudioContext(buf.numberOfChannels,buf.length,sr);
+  const s=off.createBufferSource();s.buffer=buf;
+  const hs=off.createBiquadFilter();hs.type='highshelf';hs.frequency.value=1681;hs.gain.value=4;
+  const hp=off.createBiquadFilter();hp.type='highpass';hp.frequency.value=38;hp.Q.value=.5;
+  s.connect(hs);hs.connect(hp);hp.connect(off.destination);s.start();
+  const k=await off.startRendering();const B=Math.round(.4*sr),H=Math.round(.1*sr),blocks=[];
+  for(let a=0;a+B<=k.length;a+=H){let ms=0;for(let c=0;c<k.numberOfChannels;c++){const d=k.getChannelData(c);let q=0;for(let i=a;i<a+B;i++)q+=d[i]*d[i];ms+=q/B}blocks.push(ms)}
+  if(!blocks.length)return -70;
+  const L=m=>-0.691+10*Math.log10(m+1e-20);
+  let g=blocks.filter(m=>L(m)>-70);if(!g.length)return -70;
+  const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;const rel=L(mean(g))-10;g=g.filter(m=>L(m)>rel);
+  return L(mean(g));
 }

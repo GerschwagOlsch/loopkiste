@@ -1,3 +1,4 @@
+import {SHIM} from './wshim.js';
 /* ═══════════════════════════════════════════════════════════════════════
    Loopkiste engine · DollyDrumz  (id 'dolly', kind 'drums')
    TR-909 circuit model + Simmons SDS-V / SDS7 voice cards.
@@ -228,7 +229,7 @@ function loadWorklet(ctx){
   let p=moduleLoads.get(ctx);
   if(!p){
     p=(async()=>{
-      const url=URL.createObjectURL(new Blob([WORKLET_909_SOURCE],{type:'application/javascript'}));
+      const url=URL.createObjectURL(new Blob([SHIM,WORKLET_909_SOURCE],{type:'application/javascript'}));
       try{await ctx.audioWorklet.addModule(url);}finally{try{URL.revokeObjectURL(url)}catch(_){}}
     })();
     moduleLoads.set(ctx,p);
@@ -318,7 +319,12 @@ export default async function create(ctx,{out}={}){
     macroMap:()=>MACRO_DEFS.map(d=>({id:d.id,label:d.label,keys:macroKeys(d).map(([k,o])=>o?k+' (+'+o.toFixed(2)+')':k)})),
 
     noteOn(){},noteOff(){},
-    lanes:()=>K.lanes.map(l=>({id:l.id,name:l.name,role:l.role})),
+    lanes:()=>K.lanes.map(l=>({id:l.id,name:l.name,role:l.role,engine:AI_ENGINE_OUT[K.TR909DK.engineOf(l.id)],
+      cards:K.TR909DK.hasEngineSwitch(l.id)?K.TR909DK.cardsFor(l.id).map(k=>AI_ENGINE_OUT[k]):['909']})),
+    // Loopkiste: switch one lane's voice card (909 / SDS-V / SDS7) exactly like the lane's engine button in DollyDrumz
+    setLaneEngine(laneId,card){const e={'909':'tr909','sds-v':'sdsv','sds7':'sds7'}[card];
+      if(!e||!K.TR909DK.hasEngineSwitch(laneId)||!K.TR909DK.cardsFor(laneId).includes(e))return false;
+      K.TR909DK.setParam(laneId+'Engine',ENGINE_VAL[e]);presetId=null;route();return true},
     hit(laneId,vel=1,time){
       if(disposed)return;
       const v=Number(vel);if(!(v>0))return;

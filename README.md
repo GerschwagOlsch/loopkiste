@@ -9,5 +9,3 @@ Szenen A–D, Halte-Effekte, Export als WAV, Einzelspuren und 9:16-Video.
 - `tools/build_puss.js` — erzeugt `public/engines/puss.js` aus `puss30.html`.
 - Deploy: Cloudflare Workers Builds (`wrangler.jsonc`, statische Assets aus `public/`), jeder Push auf `main` geht live.
 - Lokal testen: `cd public && python -m http.server 8080` → http://localhost:8080
-
-MP3-Export: LAME über lamejs 1.2.1 (LGPL), unverändert eingebunden in `public/vendor/lame.min.js` — https://lame.sourceforge.io

@@ -1,3 +1,4 @@
+import {SHIM} from './wshim.js';
 // Loopkiste engine: Pierrette 101.1 (Roland SH-101 circuit emulation)
 // ---------------------------------------------------------------------------
 // DSP: ./pierrette_worklet.js is a byte-identical copy of NWB
@@ -21,7 +22,8 @@
 // so an event at `time` sounds 0..127 frames early.
 // ---------------------------------------------------------------------------
 
-const WORKLET_URL = new URL('./pierrette_worklet.js', import.meta.url).href;
+const WORKLET_FILE = new URL('./pierrette_worklet.js', import.meta.url).href;
+let WORKLET_URL_P=null;function workletUrl(){if(!WORKLET_URL_P)WORKLET_URL_P=fetch(WORKLET_FILE).then(r=>r.text()).then(t=>URL.createObjectURL(new Blob([SHIM,t],{type:'text/javascript'})));return WORKLET_URL_P}
 const PRESETS_URL = new URL('./pierrette_presets.json', import.meta.url).href;
 const PROCESSOR = 'sh101-processor';
 
@@ -133,7 +135,7 @@ const _moduleLoads = new WeakMap();          // BaseAudioContext -> Promise
 function ensureWorklet(ctx) {
   let p = _moduleLoads.get(ctx);
   if (!p) {
-    p = ctx.audioWorklet.addModule(WORKLET_URL);
+    p = workletUrl().then(u=>ctx.audioWorklet.addModule(u));
     _moduleLoads.set(ctx, p);
     p.catch(() => _moduleLoads.delete(ctx));
   }
@@ -304,7 +306,7 @@ export default async function create(ctx, { out } = {}) {
       const rp = p ? normalizePatch(p) : { ...patch };
       if (bpm > 0) rp.tempo_bpm = bpm;
       const off = new OfflineAudioContext({ numberOfChannels: 2, length, sampleRate: sr });
-      await off.audioWorklet.addModule(WORKLET_URL);
+      await off.audioWorklet.addModule(await workletUrl());
       const initMessages = [
         ...patchMessages(rp),
         { type: 'arp', mode: null },

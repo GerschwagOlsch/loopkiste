@@ -1,5 +1,5 @@
 // Offline cache for the app shell; network-first so new deploys show up immediately.
-const CACHE='loopkiste-v1';
+const CACHE='loopkiste-v2';
 self.addEventListener('install',e=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil((async()=>{for(const k of await caches.keys())if(k!==CACHE)await caches.delete(k);await self.clients.claim()})()));
 self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.method!=='GET')return;

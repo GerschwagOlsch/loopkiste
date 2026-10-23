@@ -8,7 +8,7 @@ const PANEL_VOL=96;               // NWB slot default volume step
 const MACROS=[['macroTone','Ton'],['macroReso','Reso'],['macroPunch','Punch'],['macroDecay','Ausklang'],['macroEnsemble','Chorus'],['macroSpace','Raum']];
 const ENUMS={circuit:['STACK','SLEW','STRING','FORMANT','VOWEL','THROAT','REED','HARPSI','MALLET','RESON','TRANSIENT','ORGAN','LOGIC','BBDSTRING','SCANFILTER','BITPLANE','RHYTHMEX','HETERODYNE','HARMROUTER','EPROMSCAN'],filterMode:['LP4','LP2','BP','HP','NOTCH'],ensembleMode:['CHORUS','ENSEMBLE','DIMENSION','FLANGE']};
 let urlCache=null;
-function workletURL(){if(!urlCache)urlCache=URL.createObjectURL(new Blob([WORKLET],{type:'text/javascript'}));return urlCache}
+function workletURL(){if(!urlCache)urlCache=URL.createObjectURL(new Blob([SHIM,WORKLET],{type:'text/javascript'}));return urlCache}
 const loaded=new WeakMap();
 async function ensureModule(ctx){if(!loaded.has(ctx))loaded.set(ctx,ctx.audioWorklet.addModule(workletURL()));return loaded.get(ctx)}
 

@@ -23,14 +23,15 @@
         <button id="keyBtn" class="chip" aria-label="Tonart">D Dorisch</button>
       </div>
     </div>
+    <button id="undoBtn" class="iconbtn" aria-label="Rückgängig" title="Rückgängig"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+    <button id="mixBtn" class="chip" aria-label="Mixer">Mix</button>
     <button id="menuBtn" class="iconbtn" aria-label="Projekt und Export"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
   </header>
 
   <nav class="scenes" aria-label="Szenen">
     <div class="scenelist" id="scenes"></div>
-    <button id="sceneCopy" class="chip ghost" title="Aktuelle Szene in die nächste freie kopieren">+ Kopie</button>
-    <button id="barsBtn" class="chip ghost mono" title="Länge der Szene">1 Takt</button>
-    <button id="undoBtn" class="chip ghost" title="Rückgängig">↶</button>
+    <button id="sceneCopy" class="chip ghost" title="Aktuelle Szene in die nächste freie kopieren">+Kopie</button>
+    <div class="stepper" title="Takte in dieser Szene"><button id="barsMinus" class="chip ghost" aria-label="Weniger Takte">−</button><span><b id="barsOut" class="mono">2</b> Takte</span><button id="barsPlus" class="chip ghost" aria-label="Mehr Takte">+</button></div>
   </nav>
 
   <nav class="tracks" id="tracks" aria-label="Spuren"></nav>
