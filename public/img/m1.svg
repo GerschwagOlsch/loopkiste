@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a2c2f"/><stop offset="1" stop-color="#121314"/></linearGradient><linearGradient id="l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b7deb1"/><stop offset="1" stop-color="#8fbe89"/></linearGradient></defs>
+<rect width="640" height="360" rx="22" fill="url(#g)"/><rect x="0" y="236" width="640" height="6" fill="#bd1d23"/>
+<text x="48" y="168" font-family="Archivo,Arial,sans-serif" font-weight="800" font-size="150" letter-spacing="-10" fill="#e9ecef">M<tspan fill="#bd1d23">1</tspan></text>
+<text x="52" y="210" font-family="Arial,sans-serif" font-size="20" letter-spacing="6" fill="#969ba0">PCM · AI SYNTHESIS</text>
+<rect x="318" y="62" width="276" height="110" rx="6" fill="#070808" stroke="#4c4f51"/><rect x="330" y="74" width="252" height="86" fill="url(#l)"/>
+<text x="344" y="108" font-family="Courier New,monospace" font-weight="700" font-size="22" fill="#18281a">I01 Piano 16'</text><text x="344" y="140" font-family="Courier New,monospace" font-size="15" fill="#18281a">PROGRAM  SINGLE</text>
+<g fill="#e9ecef"><rect x="40" y="270" width="560" height="62" rx="4"/></g><g fill="#121314">
+<rect x="70" y="270" width="16" height="38"/><rect x="110" y="270" width="16" height="38"/><rect x="190" y="270" width="16" height="38"/><rect x="230" y="270" width="16" height="38"/><rect x="270" y="270" width="16" height="38"/><rect x="350" y="270" width="16" height="38"/><rect x="390" y="270" width="16" height="38"/><rect x="470" y="270" width="16" height="38"/><rect x="510" y="270" width="16" height="38"/><rect x="550" y="270" width="16" height="38"/></g>
+</svg>

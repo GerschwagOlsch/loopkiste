@@ -15,19 +15,20 @@ export const ENGINES={
   puss:{name:'PuSS-30',short:'PuSS-30',img:'img/puss.webp',kind:'synth',load:()=>import('./engines/puss.js')},
   sonique:{name:'Sonique 4x20',short:'Sonique',img:'img/sonique.webp',kind:'synth',load:()=>import('./engines/sonique.js')},
   pierrette:{name:'Pierrette 101',short:'Pierrette',img:'img/pierrette.webp',kind:'synth',load:()=>import('./engines/pierrette.js')},
+  m1:{name:'M1 PCM',short:'M1',img:'img/m1.svg',kind:'synth',load:()=>import('./engines/m1.js')},
 };
 export const TRACKS=[
   {id:'drums',name:'Drums',color:'var(--drums)',choices:['dolly'],role:'drums'},
-  {id:'bass',name:'Bass',color:'var(--bass)',choices:['pierrette','puss','sonique'],role:'mono',range:[24,60],oct:2},
-  {id:'chords',name:'Akkorde',color:'var(--chords)',choices:['sonique','puss','pierrette'],role:'chords',range:[40,84],oct:4},
-  {id:'lead',name:'Lead',color:'var(--lead)',choices:['puss','sonique','pierrette'],role:'mono',range:[48,96],oct:4},
+  {id:'bass',name:'Bass',color:'var(--bass)',choices:['pierrette','puss','sonique','m1'],role:'mono',range:[24,60],oct:2},
+  {id:'chords',name:'Akkorde',color:'var(--chords)',choices:['sonique','puss','pierrette','m1'],role:'chords',range:[40,84],oct:4},
+  {id:'lead',name:'Lead',color:'var(--lead)',choices:['puss','sonique','pierrette','m1'],role:'mono',range:[48,96],oct:4},
 ];
 const TR=Object.fromEntries(TRACKS.map(t=>[t.id,t]));
 const SCENE_IDS=['A','B','C','D'];
 const MAX_BARS=8;
-const PRESET_PREFS={bass:{pierrette:['ITALO BASS ROUND','ITALO BASS SAW','Moroder Pulse','#BASS'],puss:['DEEP 30 BASS','#BASS'],sonique:['TUBEBAS','#BASS']},
-  chords:{sonique:['VOXPAD','PIANO1','#PAD','#STRINGS','#KEYS'],puss:['TRIPLE BBD STRINGS','#STRINGS'],pierrette:['Italo Strings','#Pad']},
-  lead:{puss:['BRASS BUS 87','#REED','#BRASS'],sonique:['SUPERLEAD','#LEAD'],pierrette:['Italo Runner','Sunset Hero','#Lead']},drums:{dolly:[]}};
+const PRESET_PREFS={bass:{pierrette:['ITALO BASS ROUND','ITALO BASS SAW','Moroder Pulse','#BASS'],puss:['DEEP 30 BASS','#BASS'],sonique:['TUBEBAS','#BASS'],m1:['SynthBass1','#Bass']},
+  chords:{sonique:['VOXPAD','PIANO1','#PAD','#STRINGS','#KEYS'],puss:['TRIPLE BBD STRINGS','#STRINGS'],pierrette:['Italo Strings','#Pad'],m1:["Piano 16'",'#Piano & Orgel']},
+  lead:{puss:['BRASS BUS 87','#REED','#BRASS'],sonique:['SUPERLEAD','#LEAD'],pierrette:['Italo Runner','Sunset Hero','#Lead'],m1:['Solo Synth','#Synth']},drums:{dolly:[]}};
 // automix target balance in LU relative to the drums (dance/pop convention: kick+bass carry, chords sit behind, lead on top of chords)
 const MIX_TARGET={drums:0,bass:-1.5,chords:-7,lead:-3.5};
 

@@ -192,3 +192,6 @@ textarea{min-height:76px;font-family:var(--mono);font-size:12px}
   .brand{font-size:24px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.sheetbody>*{min-width:0}
+.cover{display:block;width:100%;height:auto;max-height:clamp(150px,26vh,240px);object-fit:contain;border-radius:12px}
+.cover.pix{image-rendering:pixelated}

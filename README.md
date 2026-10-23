@@ -9,3 +9,5 @@ Szenen A–D, Halte-Effekte, Export als WAV, Einzelspuren und 9:16-Video.
 - `tools/build_puss.js` — erzeugt `public/engines/puss.js` aus `puss30.html`.
 - Deploy: Cloudflare Workers Builds (`wrangler.jsonc`, statische Assets aus `public/`), jeder Push auf `main` geht live.
 - Lokal testen: `cd public && python -m http.server 8080` → http://localhost:8080
+
+- **M1 PCM**: Engine-Code verbatim aus dem NWB-Slot `m1.html` (Factory Program Player v12), gebaut mit `node tools/build_m1.js <m1.html> public/engines`. PCM-ROM liegt byte-identisch als `m1_pcm.bin` daneben. Render-Gate: `tests/app/m1gate.js`.
