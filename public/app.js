@@ -1,4 +1,4 @@
-// Loopkiste — mobile loop studio for the Nocturne instruments (DollyDrumz, PuSS-30, Sonique 4x20, Pierrette 101).
+// Loopette — mobile loop studio for the Nocturne instruments (DollyDrumz, PuSS-30, Sonique 4x20, Pierrette 101).
 import {NOTE,SCALES,midiName,keyName,inScale,scaleNotes,chordInfo,voiceChord} from './music.js';
 import {exportAudio,encodeWav,encodeMp3,loudness} from './export.js';
 import {ideaDrums,ideaBass,ideaChords,ideaLead} from './ideas.js';
@@ -530,7 +530,7 @@ function openMenu(){openSheet('Projekt & Export',b=>{
   const run=async btn=>{btn.disabled=true;result.innerHTML='';try{
       if(playing)stop();initAudio();await ac.resume();await Promise.all(TRACKS.map(t=>ensureEngine(t.id)));
       const res=await exportAudio({P,segs:arrangement(len),inst,TRACKS,eventsForStep,fade:fade.checked,audible,progress});
-      const base=(P.name||'loopkiste').replace(/[^\wäöüÄÖÜß-]+/g,'_');
+      const base=(P.name||'loopette').replace(/[^\wäöüÄÖÜß-]+/g,'_');
       progress(.95,'MP3 wird kodiert …');const mp3=await encodeMp3(res.mix,256);offerFile(result,new File([mp3],base+'.mp3',{type:'audio/mpeg'}));
       status.textContent='Fertig: MP3 256 kbit/s · '+res.mix.duration.toFixed(1)+' s · '+(mp3.size/1e6).toFixed(1)+' MB · Spitze '+res.peakDb.toFixed(1)+' dBFS';progress(1)}
     catch(e){console.error(e);status.textContent='Export fehlgeschlagen: '+e.message}btn.disabled=false};
@@ -547,7 +547,7 @@ function openMenu(){openSheet('Projekt & Export',b=>{
     h('button',{class:'opt',onclick:()=>{snapshot();const keep=deep(P.tracks);P={...demoProject(),name:'Neuer Loop',scenes:{A:newScene(2),B:null,C:null,D:null}};P.tracks=keep;for(const t of Object.values(P.tracks)){t.mute=false;t.solo=false}loadProject()}},'Neu (leer)'),
     h('button',{class:'opt',onclick:()=>{snapshot();P=demoProject();loadProject()}},'Demo laden'),
     h('button',{class:'opt',onclick:async()=>{const t=JSON.stringify(P);try{await navigator.clipboard.writeText(t);toast('Projekt-Code kopiert')}catch(_e){code.value=t;code.select();toast('Text markiert – bitte kopieren')}}},'Code kopieren'),
-    h('button',{class:'opt',onclick:()=>{try{const o=JSON.parse(code.value.trim());if(!o.scenes||!o.tracks)throw Error('kein Loopkiste-Projekt');snapshot();P=migrate(o);loadProject();toast('Projekt geladen')}catch(e){toast('Code nicht lesbar: '+e.message)}}},'Code laden')),
+    h('button',{class:'opt',onclick:()=>{try{const o=JSON.parse(code.value.trim());if(!o.scenes||!o.tracks)throw Error('kein Loopette-Projekt');snapshot();P=migrate(o);loadProject();toast('Projekt geladen')}catch(e){toast('Code nicht lesbar: '+e.message)}}},'Code laden')),
     Object.keys(projs).length?h('div',{},h('div',{class:'small',style:'margin:8px 0 4px'},'Gespeicherte Projekte:'),plist):null,h('div',{style:'height:6px'}),code));
 })}
 function arrangement(len){if(len==='song'&&P.song.list.length)return P.song.list.filter(it=>P.scenes[it.s]).map(it=>({s:it.s,n:it.n}));const n=len==='scene1'?1:len==='scene4'?4:2;return [{s:P.cur,n}]}

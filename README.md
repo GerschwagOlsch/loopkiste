@@ -1,4 +1,4 @@
-# Loopkiste
+# Loopette
 
 Mobiles Loop-Studio im Browser für die Nocturne-Instrumente: **DollyDrumz** (TR-909 + Simmons SDS-V/SDS7),
 **PuSS-30**, **Sonique 4x20** und **Pierrette 101**. Vier Spuren (Drums, Bass, Akkorde, Lead), Step / Roll / Pads,

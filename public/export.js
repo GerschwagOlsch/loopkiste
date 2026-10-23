@@ -62,7 +62,7 @@ export async function exportVideo({ac,buffer,P,picture,caption,events,progress=(
     const ids=['drums','bass','chords','lead'];ids.forEach((id,i)=>{const x=60+i*((W-120)/4),w=(W-120)/4-14,e=Math.exp(-(tt-last[id])*7);
       g.fillStyle=COLORS[id];g.globalAlpha=0.25+0.75*e;g.fillRect(x,1040,w,14);g.globalAlpha=1;g.fillStyle='#a69fb7';g.font='600 22px Archivo, system-ui, sans-serif';g.textAlign='left';g.fillText(NAMES[id],x,1090)});
     g.fillStyle='#352d47';g.fillRect(60,1150,W-120,6);g.fillStyle='#f3eef8';g.fillRect(60,1150,(W-120)*Math.min(1,tt/dur),6);
-    g.textAlign='right';g.font='800 24px Archivo, system-ui, sans-serif';g.fillStyle='#6c6480';g.fillText('Loopkiste · '+Math.round(P.bpm)+' BPM',W-60,1210);g.textAlign='center';
+    g.textAlign='right';g.font='800 24px Archivo, system-ui, sans-serif';g.fillStyle='#6c6480';g.fillText('Loopette · '+Math.round(P.bpm)+' BPM',W-60,1210);g.textAlign='center';
   };
   frame(0);rec.start(250);const t0=ac.currentTime+.25;src.start(t0);
   await new Promise(res=>{const loop=()=>{const tt=ac.currentTime-t0;frame(Math.max(0,tt));progress(Math.min(1,tt/dur));if(tt>=dur+.15){res();return}setTimeout(loop,1000/30)};loop()});

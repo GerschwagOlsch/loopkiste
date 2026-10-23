@@ -195,3 +195,7 @@ textarea{min-height:76px;font-family:var(--mono);font-size:12px}
 .sheetbody>*{min-width:0}
 .cover{display:block;width:100%;height:auto;max-height:clamp(150px,26vh,240px);object-fit:contain;border-radius:12px}
 .cover.pix{image-rendering:pixelated}
+.brand .wordmark{display:block;height:30px;width:auto;margin:0}
+h1.brand{margin:0;line-height:0}
+.bootbox{justify-items:center;text-align:center}
+.bootlogo{width:min(300px,68vw);height:auto;filter:drop-shadow(0 0 28px rgb(150 120 190 / .35))}

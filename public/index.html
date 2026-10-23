@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
-<title>Loopkiste</title>
+<title>Loopette</title>
 <meta name="theme-color" content="#14111d">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@500;700&display=swap">
@@ -17,7 +18,7 @@
   <header class="top">
     <button id="play" class="play" aria-label="Start/Stop"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-play" d="M7 4.5v15l12-7.5z"/><path class="i-stop" d="M6 6h12v12H6z"/></svg></button>
     <div class="topmid">
-      <div class="brand">Loopkiste</div>
+      <h1 class="brand"><img src="img/loopette_wm.webp" alt="Loopette" class="wordmark"></h1>
       <div class="meta">
         <button id="bpmBtn" class="chip mono" aria-label="Tempo">120 BPM</button>
         <button id="keyBtn" class="chip" aria-label="Tonart">D Dorisch</button>
@@ -58,7 +59,7 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<div class="boot" id="boot"><div class="bootbox"><div class="brand big">Loopkiste</div><p>Drums, Bass, Akkorde, Lead. Mit DollyDrumz, PuSS-30, Sonique 4x20 und Pierrette.</p><button id="bootBtn" class="cta">Loslegen</button><p class="small">Ton startet nach dem Tippen.</p></div></div>
+<div class="boot" id="boot"><div class="bootbox"><img src="img/loopette.webp" alt="Loopette" class="bootlogo"><p>Drums, Bass, Akkorde, Lead. Mit DollyDrumz, PuSS-30, Sonique 4x20, Pierrette und M1.</p><button id="bootBtn" class="cta">Loslegen</button><p class="small">Ton startet nach dem Tippen.</p></div></div>
 <script type="module" src="app.js"></script>
 </body>
 </html>
