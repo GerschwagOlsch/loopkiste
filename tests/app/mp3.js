@@ -1,0 +1,11 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch({args:['--autoplay-policy=no-user-gesture-required']});const ctx=await b.newContext({viewport:{width:390,height:844},acceptDownloads:true});
+const p=await ctx.newPage();const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.addInitScript(()=>localStorage.clear());await p.goto('http://localhost:8791/');await p.waitForTimeout(500);
+if(process.argv[2]==='puss')await p.evaluate(()=>{__lk.P.tracks.bass.engine='puss';__lk.P.tracks.chords.engine='puss'});
+await p.click('#bootBtn');await p.waitForTimeout(4000);
+console.log('engines',JSON.stringify(await p.evaluate(()=>Object.fromEntries(Object.entries(__lk.inst).map(([k,r])=>[k,!!r.eng])))));
+await p.click('#menuBtn');await p.click('text=Szene ×2');const t0=Date.now();await p.click('text=MP3 exportieren');
+await p.waitForSelector('a.cta[download]',{timeout:90000});const st=await p.$eval('.sheetbody .note',e=>e.textContent);console.log(st,((Date.now()-t0)/1000).toFixed(1)+'s');
+const [dl]=await Promise.all([p.waitForEvent('download'),p.click('a.cta[download]')]);await dl.saveAs('tests/app/out.mp3');
+await p.screenshot({path:'tests/app/shot_mp3.png'});console.log('errors',errs.length?errs:'none');await b.close()})().catch(e=>{console.error('FAIL',e);process.exit(1)});

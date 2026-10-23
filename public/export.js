@@ -69,3 +69,17 @@ export async function exportVideo({ac,buffer,P,picture,caption,events,progress=(
   rec.stop();await done;src.disconnect();
   const ext=mime.startsWith('video/mp4')?'mp4':'webm';return {blob:new Blob(chunks,{type:mime.split(';')[0]}),ext};
 }
+
+// MP3 via LAME (lamejs 1.2.1, LGPL, vendored unmodified in vendor/lame.min.js — https://lame.sourceforge.io)
+let lameP=null;
+function loadLame(){if(window.lamejs&&window.lamejs.Mp3Encoder)return Promise.resolve(window.lamejs);
+  if(!lameP)lameP=new Promise((res,rej)=>{const s=document.createElement('script');s.src='vendor/lame.min.js';s.onload=()=>res(window.lamejs);s.onerror=()=>{lameP=null;rej(Error('MP3-Encoder konnte nicht geladen werden'))};document.head.append(s)});return lameP}
+export async function encodeMp3(buf,kbps=256,progress=()=>{}){
+  const lame=await loadLame();const sr=buf.sampleRate,ch=Math.min(2,buf.numberOfChannels);
+  const enc=new lame.Mp3Encoder(ch,sr,kbps);const L=buf.getChannelData(0),R=ch>1?buf.getChannelData(1):L;
+  const toI16=(f,a,b)=>{const o=new Int16Array(b-a);for(let i=a;i<b;i++){const x=Math.max(-1,Math.min(1,f[i]));o[i-a]=x<0?x*32768:x*32767}return o};
+  const out=[],block=1152*64;
+  for(let i=0;i<L.length;i+=block){const e=Math.min(L.length,i+block);const d=ch>1?enc.encodeBuffer(toI16(L,i,e),toI16(R,i,e)):enc.encodeBuffer(toI16(L,i,e));if(d.length)out.push(new Uint8Array(d));progress(e/L.length);await new Promise(r=>setTimeout(r,0))}
+  const f=enc.flush();if(f.length)out.push(new Uint8Array(f));
+  return new Blob(out,{type:'audio/mpeg'});
+}

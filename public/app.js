@@ -1,6 +1,6 @@
 // Loopkiste — mobile loop studio for the Nocturne instruments (DollyDrumz, PuSS-30, Sonique 4x20, Pierrette 101).
 import {NOTE,SCALES,midiName,keyName,inScale,scaleNotes,chordInfo,voiceChord} from './music.js';
-import {exportAudio,exportVideo,encodeWav} from './export.js';
+import {exportAudio,exportVideo,encodeWav,encodeMp3} from './export.js';
 import {ideaDrums,ideaBass,ideaChords,ideaLead} from './ideas.js';
 
 const $=s=>document.querySelector(s);
@@ -430,11 +430,12 @@ function openMenu(){openSheet('Projekt & Export',b=>{
         const v=await exportVideo({ac,buffer:res.mix,P,segs,picture:ENGINES[pic].img,caption:cap.value,events:res.events,progress});
         offerFile(result,new File([v.blob],base+'.'+v.ext,{type:v.blob.type}));status.textContent='Fertig: '+v.ext.toUpperCase()+' · '+(v.blob.size/1e6).toFixed(1)+' MB'+(v.ext!=='mp4'?' – dieser Browser kann kein MP4 aufnehmen; Instagram nimmt WebM nicht immer an.':'')}
       else if(kind==='stems'){for(const s of res.stems)offerFile(result,new File([encodeWav(s.buffer)],base+'_'+s.name+'.wav',{type:'audio/wav'}));offerFile(result,new File([encodeWav(res.mix)],base+'.wav',{type:'audio/wav'}));status.textContent='Fertig: Summe + '+res.stems.length+' Spuren'}
+      else if(kind==='mp3'){progress(.9,'MP3 wird kodiert …');const mp3=await encodeMp3(res.mix,256);offerFile(result,new File([mp3],base+'.mp3',{type:'audio/mpeg'}));status.textContent='Fertig: MP3 256 kbit/s · '+res.mix.duration.toFixed(1)+' s · '+(mp3.size/1e6).toFixed(1)+' MB · Spitze '+res.peakDb.toFixed(1)+' dBFS'}
       else{offerFile(result,new File([encodeWav(res.mix)],base+'.wav',{type:'audio/wav'}));status.textContent='Fertig: WAV · '+res.mix.duration.toFixed(1)+' s · Spitze '+res.peakDb.toFixed(1)+' dBFS'}
       progress(1)}catch(e){console.error(e);status.textContent='Export fehlgeschlagen: '+e.message}busy(false)};
   b.append(h('div',{class:'sec'},h('h3',{},'Export'),lenRow,h('label',{class:'row small',for:'fade'},fade,'Am Ende ausblenden'),h('div',{class:'row'},
-      h('button',{class:'cta',onclick:()=>run('wav')},'WAV'),h('button',{class:'cta',onclick:()=>run('video')},'Video 9:16'),h('button',{class:'cta alt',onclick:()=>run('stems')},'Einzelspuren')),
-    h('div',{style:'height:8px'}),h('div',{class:'row'},h('span',{class:'small'},'Bild im Video:'),picRow),h('div',{style:'height:6px'}),cap,h('div',{style:'height:8px'}),prog,status,result));
+      h('button',{class:'cta',onclick:()=>run('mp3')},'MP3 exportieren')),
+    h('div',{style:'height:8px'}),prog,status,result));
   // song
   const songBox=h('div',{class:'sec'});const fillSong=()=>{songBox.innerHTML='';songBox.append(h('h3',{},'Song (Szenen nacheinander)'));
     const row=h('div',{class:'row'},h('button',{class:'opt'+(P.song.on?' on':''),onclick:()=>{P.song.on=!P.song.on;persist();fillSong()}},P.song.on?'Song-Modus an':'Song-Modus aus'));songBox.append(row);
