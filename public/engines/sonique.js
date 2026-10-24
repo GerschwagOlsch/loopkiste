@@ -66,10 +66,12 @@ export const SOURCE_INFO = {
 /* Original panel default: Vol slider 0.63 (= -22 dB) feeds engine.masterGain.
    We keep exactly that so the soft-clipper sees the same level as in the NWB. */
 const VOLUME_SLIDER = 0.63;
-/* Engine-internal output gain (post DSP, allowed by the contract) so a typical
-   preset loop peaks around -10..-6 dBFS. Applied identically live (GainNode)
-   and offline (the original render worker's own `gain` multiplier). */
-export const OUTPUT_GAIN = 1;
+/* Engine-internal output gain (post DSP, allowed by the contract). Measured on the
+   Loopette demo loop: at the original's default slider the SQ-80 programs sit about
+   10 LU below DollyDrumz, Pierrette, PuSS-30 and M1 (-27 vs -16..-21 LUFS), so the
+   wrapper adds +10 dB. Applied identically live (GainNode) and offline (the original
+   render worker's own `gain` multiplier); the DSP output itself is untouched. */
+export const OUTPUT_GAIN = 3.16;
 const DEFAULT_PRESET = 'factory:0';           // original boots bank FACTORY, program 1 (PIANO1)
 
 /* Bank order = the original's Bank <select>. */
