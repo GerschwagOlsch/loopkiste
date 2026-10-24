@@ -219,3 +219,5 @@ h1.brand{margin:0;line-height:0}
 .beat .cell.on.acc{box-shadow:inset 0 0 0 3px var(--fg)}
 .sheetbox{max-height:88vh;max-height:88dvh}
 .sheetbody{min-height:0}
+.starting .play{opacity:.5;animation:pulse .6s ease-in-out infinite alternate}
+@keyframes pulse{to{opacity:1}}

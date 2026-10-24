@@ -33,7 +33,7 @@ const PRESET_PREFS={bass:{pierrette:['ITALO BASS ROUND','ITALO BASS SAW','Morode
   chords:{sonique:['VOXPAD','PIANO1','#PAD','#STRINGS','#KEYS'],puss:['TRIPLE BBD STRINGS','#STRINGS'],pierrette:['Italo Strings','#Pad'],m1:["Piano 16'",'#Piano & Orgel']},
   lead:{puss:['BRASS BUS 87','#REED','#BRASS'],sonique:['SUPERLEAD','#LEAD'],pierrette:['Italo Runner','Sunset Hero','#Lead'],m1:['Solo Synth','#Synth']},drums:{dolly:[]}};
 // automix target balance in LU relative to the drums (dance/pop convention: kick+bass carry, chords sit behind, lead on top of chords)
-const MIX_TARGET={drums:0,bass:-1.5,chords:-7,lead:-3.5};
+const MIX_TARGET={drums:0,bass:-1.5,chords:-5,lead:-3.5};
 
 /* ───────────── project state ───────────── */
 function newScene(bars=2){return {bars,drums:{},bass:[],chords:[],lead:[]}}
@@ -143,22 +143,26 @@ function syncPatches(){for(const t of TRACKS){const r=inst[t.id];if(r&&r.eng&&P.
    Live synthesis of four instruments at once overloads a phone's audio thread. As in the Nocturne
    Workbench, a track whose loop is rendered (same engine, same DSP) plays from the buffer; after an
    edit it plays live until the new render is ready. */
-const FZ={};const fzCache=new Map();let fzBusy=false,fzTimer=null;const lastEdit={};
+const FZ={};const fzCache=new Map();const fzInflight={};let fzTimer=null;const lastEdit={};const liveNotes={};const resumeLive={};
 function fzSig(id,sc=scene()){const t=P.tracks[id];return JSON.stringify([t.engine,t.patch,t.macros||null,t.arp&&t.arp.on?t.arp:0,id==='drums'?sc.drums:sc[id],sc.bars,Math.round(P.bpm*100),P.swing,ac?ac.sampleRate:0])}
 function freezeSoon(){clearTimeout(fzTimer);fzTimer=setTimeout(fzWork,650)}
 function fzDrop(id){const f=FZ[id];if(f&&f.src){try{f.src.stop()}catch(_e){}}FZ[id]=null}
-async function fzWork(){
-  if(fzBusy||!ac)return;
-  const sc=scene();
+const hasNotes=(id,sc)=>id==='drums'?Object.values(sc.drums).some(a=>a.some(v=>v)):(sc[id]||[]).length>0;
+// All stale tracks render at the same time (the engines render in Workers / offline contexts, so a phone's cores share the work).
+function fzWork(){
+  if(!ac)return Promise.resolve();
+  const sc=scene(),jobs=[];
   for(const t of TRACKS){const id=t.id,r=inst[id];if(!r||!r.eng)continue;const sig=fzSig(id,sc);
     if(FZ[id]&&FZ[id].sig===sig)continue;
     if(FZ[id]&&FZ[id].sig!==sig)fzRelease(id);
     const cached=fzCache.get(sig);if(cached){FZ[id]={sig,buf:cached,src:null,from:0};fzEngage(id);continue}
-    if(Date.now()-(lastEdit[id]||0)<600){freezeSoon();return}
-    fzBusy=true;try{const t0=performance.now();const buf=await fzRender(id,sc);console.info('freeze '+id+' '+Math.round(performance.now()-t0)+' ms');if(fzSig(id,sc)===sig&&scene()===sc){fzCache.set(sig,buf);if(fzCache.size>24)fzCache.delete(fzCache.keys().next().value);FZ[id]={sig,buf,src:null,from:0};fzEngage(id)}}
-    catch(e){console.warn('freeze',id,e)}finally{fzBusy=false}
-    freezeSoon();return}
-  renderTracks();
+    if(fzInflight[id]){jobs.push(fzInflight[id]);continue}
+    if(Date.now()-(lastEdit[id]||0)<600){freezeSoon();continue}
+    const job=(async()=>{try{const t0=performance.now();const buf=await fzRender(id,sc);console.info('freeze '+id+' '+Math.round(performance.now()-t0)+' ms');
+        if(fzSig(id,sc)===sig&&scene()===sc){fzCache.set(sig,buf);if(fzCache.size>24)fzCache.delete(fzCache.keys().next().value);FZ[id]={sig,buf,src:null,from:0};fzEngage(id)}else freezeSoon()}
+      catch(e){console.warn('freeze',id,e)}finally{delete fzInflight[id];renderTracks()}})();
+    fzInflight[id]=job;jobs.push(job)}
+  return Promise.all(jobs);
 }
 async function fzRender(id,sc){const sd=stepDur(),L=sceneLen(sc),sr=ac.sampleRate,loopSec=L*sd;const ev=[];
   const hasNotes=id==='drums'?Object.values(sc.drums).some(a=>a.some(v=>v)):sc[id].length>0;
@@ -169,18 +173,24 @@ async function fzRender(id,sc){const sd=stepDur(),L=sceneLen(sc),sr=ac.sampleRat
   const out=new AudioBuffer({numberOfChannels:2,length:n,sampleRate:sr});const a=Math.round(loopSec*sr);
   for(let c=0;c<2;c++){const src=stem.getChannelData(Math.min(c,stem.numberOfChannels-1));out.copyToChannel(src.subarray(a,a+n),c)}
   return out}
-function fzEngage(id){const f=FZ[id];if(!f||!playing||f.src||stutter)return;const t=nextT;const sd=stepDur();const off=((t-loopT0)%(sceneLen()*sd)+sceneLen()*sd)%(sceneLen()*sd);fzStart(id,t,off)}
+function fzEngage(id){const f=FZ[id];if(!f||!playing||f.src||stutter)return;const t=nextT;const sd=stepDur();const off=((t-loopT0)%(sceneLen()*sd)+sceneLen()*sd)%(sceneLen()*sd);fzStart(id,t,off);liveSilence(id,t)}
+// live notes of a track that would still sound after `t` are released there (the frozen buffer takes over)
+function liveSilence(id,t){const r=inst[id],arr=liveNotes[id]||[];if(r&&r.eng)for(const n of arr)if(n.off>t+1e-4){if(id==='drums')continue;r.eng.noteOff(n.midi,t)}liveNotes[id]=[]}
 function fzStart(id,t,offset){const f=FZ[id];if(!f)return;const loopSec=sceneLen()*stepDur();const s=ac.createBufferSource();s.buffer=f.buf;s.connect(trackGain[id]);s.start(t,offset);s.stop(t+loopSec-offset);f.src=s;f.from=t;f.until=t+loopSec-offset;s.onended=()=>{if(f.src===s)f.src=null}}
 function fzRelease(id){const f=FZ[id];if(!f)return;if(f.src){try{f.src.stop(playing?nextT:0)}catch(_e){}}f.src=null;FZ[id]=null;f.cut=nextT}
 const isFrozenAt=(id,t)=>{const f=FZ[id];return !!(f&&f.src&&t>=f.from-1e-6)};
-function markEdit(id){lastEdit[id]=Date.now();const f=FZ[id];if(f){const cut=playing?nextT:0;if(f.src){try{f.src.stop(cut)}catch(_e){}}FZ[id]=null}}
+function markEdit(id){lastEdit[id]=Date.now();const f=FZ[id];if(f){const cut=playing?nextT:0;if(f.src){try{f.src.stop(cut)}catch(_e){}}FZ[id]=null;if(playing)resumeLive[id]=true}}
 
 /* ───────────── sequencer ───────────── */
-let playing=false,timer=null,nextT=0,stepIdx=0,loopT0=0,queued=null,songIdx=0,songRep=0;
+let playing=false,starting=false,timer=null,nextT=0,stepIdx=0,loopT0=0,queued=null,songIdx=0,songRep=0;
 let stutter=null;
 const stepDur=()=>60/P.bpm/4;
 const visQ=[];
-function start(){initAudio();ac.resume();if(playing)return;playing=true;document.body.classList.add('playing');
+async function start(){initAudio();ac.resume();if(playing||starting)return;
+  // Before the first bar every track should play from its rendered loop: four live synths overload a phone.
+  const sc=scene();const need=TRACKS.filter(t=>inst[t.id]&&inst[t.id].eng&&hasNotes(t.id,sc)&&!(FZ[t.id]&&FZ[t.id].sig===fzSig(t.id,sc)));
+  if(need.length){starting=true;document.body.classList.add('starting');toast('Spuren werden vorbereitet …');try{await Promise.race([fzWork(),new Promise(r=>setTimeout(r,8000))])}finally{starting=false;document.body.classList.remove('starting')}}
+  if(playing)return;playing=true;document.body.classList.add('playing');
   stepIdx=0;nextT=ac.currentTime+.08;loopT0=nextT;songIdx=0;songRep=0;if(P.song.on&&P.song.list.length&&P.scenes[P.song.list[0].s]){P.cur=P.song.list[0].s;renderScenes()}
   timer=setInterval(tick,25);tick();requestAnimationFrame(draw);freezeSoon()}
 function stop(){playing=false;document.body.classList.remove('playing');clearInterval(timer);for(const t of TRACKS){const r=inst[t.id];r&&r.eng&&r.eng.allOff&&r.eng.allOff();const f=FZ[t.id];if(f&&f.src){try{f.src.stop()}catch(_e){}f.src=null}}visQ.length=0;drawPlayhead(-1)}
@@ -215,8 +225,12 @@ function scheduleStep(i,t){
   if(!stutter&&i===0)for(const tdef of TRACKS){const f=FZ[tdef.id];if(f&&(!f.src||f.until<=t+1e-4)){if(f.src&&f.until>t+1e-4)continue;fzStart(tdef.id,t,0)}}
   if(stutter&&(i-stutter.base)%stutter.len===0)for(const tdef of TRACKS){const f=FZ[tdef.id];if(!f||!f.buf)continue;const g=ac.createBufferSource();g.buffer=f.buf;g.connect(trackGain[tdef.id]);g.start(t,(s%L)*sd,stutter.len*sd);visQ.push({t,track:tdef.id})}
   const ev=eventsForStep(P,sc,s%L,t,sd,P.swing,id=>!(FZ[id]&&FZ[id].buf&&(stutter||isFrozenAt(id,t))));
+  // a track that just left its frozen buffer: notes already sounding at this step are started live for their remaining length
+  if(!stutter)for(const tdef of TRACKS){const id=tdef.id;if(!resumeLive[id])continue;resumeLive[id]=false;if(id==='drums'||(P.tracks[id].arp&&P.tracks[id].arp.on))continue;
+    for(const n of sc[id]||[])if(n.s<s%L&&s%L<n.s+n.l)ev.push({track:id,t,midi:n.p,vel:n.v??.8,dur:Math.max(.02,(n.s+n.l-s%L)*sd-.006)})}
   for(const e of ev){const r=inst[e.track];if(!r||!r.eng)continue;
-    if(e.track==='drums')r.eng.hit(e.lane,e.vel,e.t);else{const d=stutter?Math.min(e.dur,stutter.len*sd-.006):e.dur;r.eng.noteOn(e.midi,e.vel,e.t);r.eng.noteOff(e.midi,e.t+d)}}
+    if(e.track==='drums')r.eng.hit(e.lane,e.vel,e.t);else{const d=stutter?Math.min(e.dur,stutter.len*sd-.006):e.dur;r.eng.noteOn(e.midi,e.vel,e.t);r.eng.noteOff(e.midi,e.t+d);
+      const arr=liveNotes[e.track]||(liveNotes[e.track]=[]);arr.push({midi:e.midi,off:e.t+d});if(arr.length>64)arr.splice(0,arr.length-64)}}
   for(const e of eventsForStep(P,sc,s%L,t,sd,P.swing,null))visQ.push({t:e.t,track:e.track});
   visQ.push({t,step:i});
 }
