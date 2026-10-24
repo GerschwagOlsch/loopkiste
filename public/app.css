@@ -199,3 +199,23 @@ textarea{min-height:76px;font-family:var(--mono);font-size:12px}
 h1.brand{margin:0;line-height:0}
 .bootbox{justify-items:center;text-align:center}
 .bootlogo{width:min(300px,68vw);height:auto;filter:drop-shadow(0 0 28px rgb(150 120 190 / .35))}
+/* empty state, drum picker */
+.empty{display:grid;gap:14px;justify-items:start;padding:18px 4px}
+.empty p{margin:0;color:var(--dim);line-height:1.5;max-width:42ch}
+.dpick{display:grid;grid-template-columns:minmax(90px,1fr) auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.dpick .dname b{display:block;font-family:var(--display);font-stretch:110%}
+.dpick.added .dname b{color:var(--drums)}
+.dpick .row{justify-content:flex-end}
+.opt.mach{font-family:var(--mono);font-weight:700;min-width:64px}
+.opt.mach.c909.on{background:#ff9d6a;border-color:#ff9d6a;color:var(--bg)}
+.opt.mach.csdsv.on{background:#7fb6ff;border-color:#7fb6ff;color:var(--bg)}
+.opt.mach.csds7.on{background:#c49bff;border-color:#c49bff;color:var(--bg)}
+.opt.ghost{background:transparent;color:var(--dim)}
+/* note lengths */
+.lenrow{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.chip.len{height:30px;padding:0 10px;font-family:var(--mono);font-size:13px}
+.beat .cell.cont{border-top-right-radius:0;border-bottom-right-radius:0}
+.beat .cell.tie{border-top-left-radius:0;border-bottom-left-radius:0;background:color-mix(in srgb,var(--tc) 62%,var(--panel2))}
+.beat .cell.on.acc{box-shadow:inset 0 0 0 3px var(--fg)}
+.sheetbox{max-height:88vh;max-height:88dvh}
+.sheetbody{min-height:0}
