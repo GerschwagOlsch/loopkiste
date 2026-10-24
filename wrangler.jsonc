@@ -1,6 +1,6 @@
 {
   // Static site on Cloudflare Workers (Workers Builds deploys this on every push to main)
-  "name": "loopkiste",
+  "name": "loopette",
   "compatibility_date": "2026-09-01",
   "assets": { "directory": "./public", "not_found_handling": "single-page-application" }
 }
