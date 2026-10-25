@@ -231,3 +231,19 @@ h1.brand{margin:0;line-height:0}
 .beatrow.half{grid-template-columns:repeat(2,minmax(0,1fr))}
 .beatrow.half .cell{min-height:clamp(36px,6vh,56px)}
 .beatrow.half .cell.tall{min-height:clamp(46px,8vh,68px)}
+/* mixer meters */
+.meter{position:relative;height:6px}
+.meter i{background:var(--ok)}
+.meter i.yellow{background:var(--bass)}
+.meter i.red{background:var(--rec)}
+.meter b{position:absolute;top:-1px;width:2px;height:8px;background:var(--fg);transform:translateX(-1px)}
+.meter b.yellow{background:var(--bass)}.meter b.red{background:var(--rec)}
+.strip.master{border-bottom:2px solid var(--line);margin-bottom:4px}
+.strip.master .sname b{color:var(--fg)}
+.strip.master .meter{height:9px}
+.seg.clips{padding:2px}
+.seg.clips button{height:28px;padding:0 9px;font-family:var(--display);font-weight:800;font-stretch:110%}
+.seg.clips button.empty{opacity:.45}
+.seg.clips button.queued{animation:blink .5s steps(2) infinite;outline:1px solid var(--tc)}
+.scene.part{border-color:var(--fg);color:var(--fg)}
+.edhead input[type=text],.sheetbody .row input[type=text]{width:auto;flex:1;min-width:120px;padding:8px 10px}

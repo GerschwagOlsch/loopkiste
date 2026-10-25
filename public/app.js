@@ -1,6 +1,6 @@
 // Loopette — mobile loop studio for the Nocturne instruments (DollyDrumz, PuSS-30, Sonique 4x20, Pierrette 101).
 import {NOTE,SCALES,midiName,keyName,inScale,scaleNotes,chordInfo,voiceChord} from './music.js';
-import {exportAudio,encodeWav,encodeMp3,loudness} from './export.js';
+import {exportAudio,encodeWav,encodeMp3,encodeFlac,makeZip,loudness} from './export.js';
 import {ideaDrums,ideaBass,ideaChords,ideaLead} from './ideas.js';
 
 const $=s=>document.querySelector(s);
@@ -46,12 +46,12 @@ const SLOT_RE=/^(.+)@(.+)$/;const slotLane=k=>{const m=SLOT_RE.exec(k);return m?
 /* ───────────── project state ───────────── */
 function newScene(bars=1,ids=null){const sc={bars};for(const id of ids||P.order)sc[id]=(P.tracks[id]&&P.tracks[id].type||id)==='drums'?{}:[];return sc}
 const ARP0={on:false,mode:'up',rate:1,oct:1,gate:.8};
-function newTrack(type,engine){const b={type,engine,vol:.8,mute:false,solo:false,preset:null,patch:null};
+function newTrack(type,engine){const b={type,engine,vol:.8,mute:false,solo:false,preset:null,patch:null,scene:'A'};
   if(type==='drums')return {...b,vol:.9,lanes:[]};
   if(type==='chords')return {...b,vol:.62,view:'step',oct:4,hold:true,seventh:false,voicing:'lead',bassOct:false,len:4,arp:{...ARP0}};
   return {...b,vol:type==='bass'?.8:.7,view:'step',oct:type==='bass'?2:4,len:1,arp:{...ARP0}}}
 function baseTracks(){return {drums:newTrack('drums','dolly'),bass:newTrack('bass','pierrette'),chords:newTrack('chords','sonique'),lead:newTrack('lead','puss')}}
-function emptyProject(){const ids=['drums','bass','chords','lead'];return {v:4,name:'Neuer Loop',bpm:120,swing:0,key:2,scale:'dorian',cur:'A',launch:'bar',song:{on:false,list:[{s:'A',n:2}]},order:ids,tracks:baseTracks(),scenes:{A:{bars:1,drums:{},bass:[],chords:[],lead:[]},B:null,C:null,D:null}}}
+function emptyProject(){const ids=['drums','bass','chords','lead'];return {v:4,name:'Neuer Loop',bpm:120,swing:0,key:2,scale:'dorian',launch:'bar',song:{on:false,list:[{s:'A',n:2}]},order:ids,tracks:baseTracks(),scenes:{A:{bars:1,drums:{},bass:[],chords:[],lead:[]},B:null,C:null,D:null}}}
 function demoProject(){
   const P={...emptyProject(),name:'Demo',bpm:112,swing:0.1};P.tracks.chords.seventh=true;P.tracks.drums.lanes=['bd@909','cp@909','ch@909','oh@909'];P.scenes.A.bars=2;
   const A=P.scenes.A,L=32,lane=(steps,v=1)=>{const a=new Array(L).fill(0);steps.forEach(s=>a[s]=v);return a};
@@ -64,7 +64,7 @@ function demoProject(){
   return P;
 }
 function migrate(P){if(!P)return P;
-  if(!P.order)P.order=Object.keys(P.tracks);if(!P.launch)P.launch='bar';
+  if(!P.order)P.order=Object.keys(P.tracks);if(!P.launch)P.launch='bar';for(const t of Object.values(P.tracks))if(!t.scene)t.scene=P.cur||'A';
   for(const [id,t] of Object.entries(P.tracks)){if(!t.type)t.type=TYPES[id]?id:'lead';if(t.solo==null)t.solo=false;
     if(t.type!=='drums'){if(!t.arp)t.arp={...ARP0};if(t.len==null)t.len=t.type==='chords'?4:1}
     if(t.type==='chords'&&!t.voicing)t.voicing='lead';
@@ -84,11 +84,12 @@ function load(k){try{const t=localStorage.getItem(k);return t?JSON.parse(t):null
 function persist(){clearTimeout(persist.t);persist.t=setTimeout(()=>{try{localStorage.setItem('loopkiste.current',JSON.stringify(P))}catch(_e){}},400);freezeSoon()}
 function snapshot(){undoStack.push(JSON.stringify(P));if(undoStack.length>60)undoStack.shift()}
 function undo(){const s=undoStack.pop();if(!s)return toast('Nichts rückgängig zu machen');const old=P;P=JSON.parse(s);rebuildTracks();if(!TR[sel])sel=TRACKS[0].id;for(const t of TRACKS){ensureTrackNodes(t.id);if(!old.tracks[t.id]||old.tracks[t.id].engine!==P.tracks[t.id].engine)ensureEngine(t.id);applyTrackGain(t.id)}for(const id of Object.keys(old.tracks))if(!P.tracks[id])dropTrackRuntime(id);syncPatches();persist();renderAll()}
-function scene(){return P.scenes[P.cur]}
+function scOf(id){const t=P.tracks[id];if(!P.scenes[t.scene||'A'])t.scene=Object.keys(P.scenes).find(k=>P.scenes[k])||'A';return P.scenes[t.scene]}
+function scene(){return scOf(sel)}
 function sceneLen(sc){return (sc||scene()).bars*16}
 
 /* ───────────── chords & voicings ───────────── */
-function chordAt(P,sc,step,tid=mainChords()){const cs=(tid&&sc[tid]||[]).filter(n=>n.c!=null&&n.s<=step);if(!cs.length)return null;const s=Math.max(...cs.map(n=>n.s));return cs.filter(n=>n.s===s)}
+function chordAt(P,sc,step,tid=mainChords()){if(tid&&P.tracks[tid]&&P.scenes[P.tracks[tid].scene])sc=P.scenes[P.tracks[tid].scene];const cs=(tid&&sc[tid]||[]).filter(n=>n.c!=null&&n.s<=step%(sc.bars*16));if(!cs.length)return null;const s=Math.max(...cs.map(n=>n.s));return cs.filter(n=>n.s===s)}
 export function chordNotes(P,deg,inv=0,prev=null,tid='chords'){
   const t=P.tracks[tid],info=chordInfo(deg,P.key,P.scale,!!t.seventh),center=12*((t.oct??4)+1);let notes;
   const mode=t.voicing||'lead';
@@ -128,6 +129,7 @@ function initAudio(){
   const comp=ac.createDynamicsCompressor();comp.threshold.value=-12;comp.knee.value=8;comp.ratio.value=3;comp.attack.value=.004;comp.release.value=.16;
   const lim=ac.createDynamicsCompressor();lim.threshold.value=-1.5;lim.knee.value=0;lim.ratio.value=20;lim.attack.value=.001;lim.release.value=.08;
   master=ac.createGain();master.gain.value=.9;tapeGain.connect(comp);comp.connect(lim);lim.connect(master);master.connect(ac.destination);
+  const man=ac.createAnalyser();man.fftSize=2048;comp.connect(man);meter.master=man;
   fxNodes={filt,tape,tapeGain,echoIn,echo,efb};
   for(const t of TRACKS)ensureTrackNodes(t.id);
 }
@@ -161,62 +163,65 @@ function syncPatches(){for(const t of TRACKS){const r=inst[t.id];if(r&&r.eng&&P.
    Workbench, a track whose loop is rendered (same engine, same DSP) plays from the buffer; after an
    edit it plays live until the new render is ready. */
 const FZ={};const fzCache=new Map();const fzInflight={};let fzTimer=null;const lastEdit={};const liveNotes={};const resumeLive={};
-function fzSig(id,sc=scene()){const t=P.tracks[id];return JSON.stringify([t.engine,t.patch,t.macros||null,t.arp&&t.arp.on?t.arp:0,sc[id],sc.bars,Math.round(P.bpm*100),P.swing,ac?ac.sampleRate:0])}
+function fzSig(id,sc=scOf(id)){const t=P.tracks[id];return JSON.stringify([t.engine,t.patch,t.macros||null,t.arp&&t.arp.on?t.arp:0,sc[id],sc.bars,Math.round(P.bpm*100),P.swing,ac?ac.sampleRate:0])}
 function freezeSoon(){clearTimeout(fzTimer);fzTimer=setTimeout(fzWork,650)}
 function fzDrop(id){const f=FZ[id];if(f&&f.src){try{f.src.stop()}catch(_e){}}FZ[id]=null}
 const hasNotes=(id,sc)=>typeOf(id)==='drums'?Object.values(sc[id]||{}).some(a=>a.some(v=>v)):(sc[id]||[]).length>0;
 // All stale tracks render at the same time (the engines render in Workers / offline contexts, so a phone's cores share the work).
 function fzWork(){
   if(!ac)return Promise.resolve();
-  const sc=scene(),jobs=[];
-  for(const t of TRACKS){const id=t.id,r=inst[id];if(!r||!r.eng)continue;const sig=fzSig(id,sc);
+  const jobs=[];
+  for(const t of TRACKS){const id=t.id,r=inst[id];if(!r||!r.eng)continue;const sc=scOf(id),sig=fzSig(id,sc);
     if(FZ[id]&&FZ[id].sig===sig)continue;
     if(FZ[id]&&FZ[id].sig!==sig)fzRelease(id);
     const cached=fzCache.get(sig);if(cached){FZ[id]={sig,buf:cached,src:null,from:0};fzEngage(id);continue}
     if(fzInflight[id]){jobs.push(fzInflight[id]);continue}
     if(Date.now()-(lastEdit[id]||0)<600){freezeSoon();continue}
     const job=(async()=>{try{const t0=performance.now();const buf=await fzRender(id,sc);console.info('freeze '+id+' '+Math.round(performance.now()-t0)+' ms');
-        if(fzSig(id,sc)===sig&&scene()===sc){fzCache.set(sig,buf);if(fzCache.size>24)fzCache.delete(fzCache.keys().next().value);FZ[id]={sig,buf,src:null,from:0};fzEngage(id)}else freezeSoon()}
+        if(fzSig(id)===sig){fzCache.set(sig,buf);if(fzCache.size>24)fzCache.delete(fzCache.keys().next().value);FZ[id]={sig,buf,src:null,from:0};fzEngage(id)}else freezeSoon()}
       catch(e){console.warn('freeze',id,e)}finally{delete fzInflight[id];renderTracks()}})();
     fzInflight[id]=job;jobs.push(job)}
   return Promise.all(jobs);
 }
 async function fzRender(id,sc){const sd=stepDur(),L=sceneLen(sc),sr=ac.sampleRate,loopSec=L*sd;const ev=[];
-  const has=hasNotes(id,sc);
-  const n=Math.round(loopSec*sr);if(!has)return new AudioBuffer({numberOfChannels:2,length:n,sampleRate:sr});
-  for(let rep=0;rep<2;rep++)for(let i=0;i<L;i++)for(const e of eventsForStep(P,sc,i,(rep*L+i)*sd,sd,P.swing,x=>x===id))ev.push(typeOf(id)==='drums'?{t:e.t,lane:e.lane,vel:e.vel}:{t:e.t,midi:e.midi,vel:e.vel,dur:e.dur});
+  const n=Math.round(loopSec*sr);if(!hasNotes(id,sc))return new AudioBuffer({numberOfChannels:2,length:n,sampleRate:sr});
+  for(let rep=0;rep<2;rep++)for(let i=0;i<L;i++)for(const e of eventsForStep(P,()=>sc,i,(rep*L+i)*sd,sd,P.swing,x=>x===id))ev.push(typeOf(id)==='drums'?{t:e.t,lane:e.lane,vel:e.vel}:{t:e.t,midi:e.midi,vel:e.vel,dur:e.dur});
   const stem=await inst[id].eng.renderStem({sampleRate:sr,durationSec:2*loopSec+.05,events:ev});
   // second pass = steady state: tails of the previous pass are already inside, so the loop is seamless
   const out=new AudioBuffer({numberOfChannels:2,length:n,sampleRate:sr});const a=Math.round(loopSec*sr);
   for(let c=0;c<2;c++){const src=stem.getChannelData(Math.min(c,stem.numberOfChannels-1));out.copyToChannel(src.subarray(a,a+n),c)}
   return out}
-function fzEngage(id){const f=FZ[id];if(!f||!playing||f.src||stutter)return;const t=nextT;const sd=stepDur();const off=((t-loopT0)%(sceneLen()*sd)+sceneLen()*sd)%(sceneLen()*sd);fzStart(id,t,off);liveSilence(id,t)}
+const trackLen=id=>sceneLen(scOf(id));
+function fzEngage(id){const f=FZ[id];if(!f||!playing||f.src||stutter)return;const t=nextT;fzStart(id,t,(stepIdx%trackLen(id))*stepDur());liveSilence(id,t)}
 // live notes of a track that would still sound after `t` are released there (the frozen buffer takes over)
 function liveSilence(id,t){const r=inst[id],arr=liveNotes[id]||[];if(r&&r.eng)for(const n of arr)if(n.off>t+1e-4){if(typeOf(id)==='drums')continue;r.eng.noteOff(n.midi,t)}liveNotes[id]=[]}
-function fzStart(id,t,offset){const f=FZ[id];if(!f)return;const loopSec=sceneLen()*stepDur();const s=ac.createBufferSource();s.buffer=f.buf;s.connect(trackGain[id]);s.start(t,offset);s.stop(t+loopSec-offset);f.src=s;f.from=t;f.until=t+loopSec-offset;s.onended=()=>{if(f.src===s)f.src=null}}
+function fzStart(id,t,offset){const f=FZ[id];if(!f)return;const loopSec=trackLen(id)*stepDur();if(offset>=loopSec-1e-6)return;const s=ac.createBufferSource();s.buffer=f.buf;s.connect(trackGain[id]);s.start(t,offset);s.stop(t+loopSec-offset);f.src=s;f.from=t;f.until=t+loopSec-offset;s.onended=()=>{if(f.src===s)f.src=null}}
 function fzRelease(id){const f=FZ[id];if(!f)return;if(f.src){try{f.src.stop(playing?nextT:0)}catch(_e){}}f.src=null;FZ[id]=null;f.cut=nextT}
 const isFrozenAt=(id,t)=>{const f=FZ[id];return !!(f&&f.src&&t>=f.from-1e-6)};
 function markEdit(id){lastEdit[id]=Date.now();const f=FZ[id];if(f){const cut=playing?nextT:0;if(f.src){try{f.src.stop(cut)}catch(_e){}}FZ[id]=null;if(playing)resumeLive[id]=true}}
 
-/* ───────────── sequencer ───────────── */
-let playing=false,starting=false,timer=null,nextT=0,stepIdx=0,loopT0=0,queued=null,songIdx=0,songRep=0;
+/* ───────────── sequencer ─────────────
+   One step clock for all tracks. Every track plays its own scene (clip) and loops at that scene's length,
+   so tracks with 1, 2 and 4 bars run side by side; the global step counter just keeps counting. */
+let playing=false,starting=false,timer=null,nextT=0,stepIdx=0,startT=0,queued=null,songIdx=0,songRep=0;
 let stutter=null;
 const stepDur=()=>60/P.bpm/4;
 const visQ=[];
+const maxLen=()=>Math.max(16,...TRACKS.map(t=>trackLen(t.id)));
 async function start(){initAudio();ac.resume();if(playing||starting)return;
-  // Before the first bar every track should play from its rendered loop: four live synths overload a phone.
-  const sc=scene();const need=TRACKS.filter(t=>inst[t.id]&&inst[t.id].eng&&hasNotes(t.id,sc)&&!(FZ[t.id]&&FZ[t.id].sig===fzSig(t.id,sc)));
+  if(P.song.on&&P.song.list.length&&P.scenes[P.song.list[0].s])for(const t of TRACKS)P.tracks[t.id].scene=P.song.list[0].s;
+  // Before the first bar every track should play from its rendered loop: several live synths overload a phone.
+  const need=TRACKS.filter(t=>inst[t.id]&&inst[t.id].eng&&hasNotes(t.id,scOf(t.id))&&!(FZ[t.id]&&FZ[t.id].sig===fzSig(t.id)));
   if(need.length){starting=true;document.body.classList.add('starting');toast('Spuren werden vorbereitet …');try{await Promise.race([fzWork(),new Promise(r=>setTimeout(r,8000))])}finally{starting=false;document.body.classList.remove('starting')}}
   if(playing)return;playing=true;document.body.classList.add('playing');
-  stepIdx=0;nextT=ac.currentTime+.08;loopT0=nextT;songIdx=0;songRep=0;if(P.song.on&&P.song.list.length&&P.scenes[P.song.list[0].s]){P.cur=P.song.list[0].s;renderScenes()}
+  stepIdx=0;nextT=ac.currentTime+.08;startT=nextT;songIdx=0;songRep=0;renderScenes();
   timer=setInterval(tick,25);tick();requestAnimationFrame(draw);freezeSoon()}
 function stop(){playing=false;document.body.classList.remove('playing');clearInterval(timer);for(const t of TRACKS){const r=inst[t.id];r&&r.eng&&r.eng.allOff&&r.eng.allOff();const f=FZ[t.id];if(f&&f.src){try{f.src.stop()}catch(_e){}f.src=null}}visQ.length=0;drawPlayhead(-1)}
 function tick(){const ahead=ac.currentTime+.15;while(nextT<ahead){scheduleStep(stepIdx,nextT);advance()}}
-function sceneChanged(){for(const t of TRACKS){const f=FZ[t.id];if(f&&f.src){try{f.src.stop(nextT)}catch(_e){}}FZ[t.id]=null}freezeSoon();fzWork()}
-function advance(){nextT+=stepDur();stepIdx++;const L=sceneLen();
-  if(queued&&(P.launch==='loop'?stepIdx>=L:stepIdx%16===0)){switchScene(queued,stepIdx);return}
-  if(stepIdx>=L){stepIdx=0;loopT0=nextT;
-    if(P.song.on&&P.song.list.length){songRep++;const it=P.song.list[songIdx%P.song.list.length];if(songRep>=it.n){songRep=0;songIdx=(songIdx+1)%P.song.list.length;const nx=P.song.list[songIdx].s;if(P.scenes[nx]&&nx!==P.cur){P.cur=nx;sceneChanged();renderScenes();renderEditor()}}}}}
+function sceneChanged(ids=TRACKS.map(t=>t.id)){for(const id of ids){const f=FZ[id];if(f&&f.src){try{f.src.stop(nextT)}catch(_e){}}FZ[id]=null;if(playing)resumeLive[id]=true}freezeSoon();fzWork()}
+function advance(){nextT+=stepDur();stepIdx++;
+  if(queued){const L=P.launch==='loop'?Math.max(16,...queued.ids.map(id=>trackLen(id))):16;if(stepIdx%L===0){switchScene(queued.s,queued.ids);return}}
+  if(P.song.on&&P.song.list.length&&stepIdx%maxLen()===0){songRep++;const it=P.song.list[songIdx%P.song.list.length];if(songRep>=it.n){songRep=0;songIdx=(songIdx+1)%P.song.list.length;const nx=P.song.list[songIdx].s;if(P.scenes[nx])switchScene(nx,TRACKS.map(t=>t.id))}}}
 /* Arpeggiator: a pure function of the step, so live play, freeze and export produce the same notes.
    The held notes at a step form the chord; the pattern restarts whenever a new note/chord begins. */
 export const ARP_MODES=[['up','Auf'],['down','Ab'],['updown','Auf & ab'],['order','Gespielt'],['random','Zufall']];
@@ -228,31 +233,32 @@ export function arpStep(P,sc,id,s,sd){const a=P.tracks[id].arp,rate=a.rate||1;
   if(a.mode==='down')seq.reverse();else if(a.mode==='updown'&&seq.length>2)seq=seq.concat(seq.slice(1,-1).reverse());
   let idx=k%seq.length;if(a.mode==='random'){let x=(s*2654435761+g0*40503+seq.length*97)>>>0;x^=x>>>15;x=Math.imul(x,2246822519)>>>0;x^=x>>>13;idx=x%seq.length}
   const vel=Math.max(...held.map(n=>n.v??.8));return [{midi:seq[idx],vel,dur:Math.max(.02,rate*sd*(a.gate??.8)-.004)}]}
-export function eventsForStep(P,sc,i,t,sd,swing,trackFilter){
-  const out=[];const s=i;const tt=t+((s%2)?swing*sd*.5:0);
-  for(const tdef of TRACKS){const id=tdef.id;if(trackFilter&&!trackFilter(id))continue;
+/* events of global step i; scOf(id) gives each track's scene (a scene object is accepted too) */
+export function eventsForStep(P,scOf,i,t,sd,swing,trackFilter){
+  const out=[];const tt=t+((i%2)?swing*sd*.5:0);const sf=typeof scOf==='function'?scOf:()=>scOf;
+  for(const tdef of TRACKS){const id=tdef.id;if(trackFilter&&!trackFilter(id))continue;const sc=sf(id);if(!sc)continue;const s=i%(sc.bars*16);
     if(tdef.role==='drums'){for(const [lane,arr] of Object.entries(sc[id]||{})){const v=arr[s];if(v)out.push({track:id,t:tt,lane,vel:v===2?1:.72})}}
     else if(P.tracks[id].arp&&P.tracks[id].arp.on){for(const e of arpStep(P,sc,id,s,sd))out.push({track:id,t:tt,...e})}
     else for(const n of sc[id]||[])if(n.s===s)out.push({track:id,t:tt,midi:n.p,vel:n.v??.8,dur:Math.max(.02,n.l*sd-.006)})}
   return out;
 }
 function scheduleStep(i,t){
-  const sc=scene(),sd=stepDur(),L=sceneLen(sc);let s=i;if(stutter){s=stutter.from+((i-stutter.base)%stutter.len+stutter.len)%stutter.len}
-  // frozen tracks: a new buffer pass at every loop start
-  if(!stutter&&i===0)for(const tdef of TRACKS){const f=FZ[tdef.id];if(f&&(!f.src||f.until<=t+1e-4)){if(f.src&&f.until>t+1e-4)continue;fzStart(tdef.id,t,0)}}
-  if(stutter&&(i-stutter.base)%stutter.len===0)for(const tdef of TRACKS){const f=FZ[tdef.id];if(!f||!f.buf)continue;const g=ac.createBufferSource();g.buffer=f.buf;g.connect(trackGain[tdef.id]);g.start(t,(s%L)*sd,stutter.len*sd);visQ.push({t,track:tdef.id})}
-  const ev=eventsForStep(P,sc,s%L,t,sd,P.swing,id=>!(FZ[id]&&FZ[id].buf&&(stutter||isFrozenAt(id,t))));
+  const sd=stepDur();let s=i;if(stutter){s=stutter.from+((i-stutter.base)%stutter.len+stutter.len)%stutter.len}
+  // frozen tracks: a new buffer pass at every loop start of that track
+  if(!stutter)for(const tdef of TRACKS){const f=FZ[tdef.id];if(f&&i%trackLen(tdef.id)===0&&(!f.src||f.until<=t+1e-4))fzStart(tdef.id,t,0)}
+  if(stutter&&(i-stutter.base)%stutter.len===0)for(const tdef of TRACKS){const f=FZ[tdef.id];if(!f||!f.buf)continue;const g=ac.createBufferSource();g.buffer=f.buf;g.connect(trackGain[tdef.id]);g.start(t,(s%trackLen(tdef.id))*sd,stutter.len*sd);visQ.push({t,track:tdef.id})}
+  const ev=eventsForStep(P,scOf,s,t,sd,P.swing,id=>!(FZ[id]&&FZ[id].buf&&(stutter||isFrozenAt(id,t))));
   // a track that just left its frozen buffer: notes already sounding at this step are started live for their remaining length
   if(!stutter)for(const tdef of TRACKS){const id=tdef.id;if(!resumeLive[id])continue;resumeLive[id]=false;if(tdef.role==='drums'||(P.tracks[id].arp&&P.tracks[id].arp.on))continue;
-    for(const n of sc[id]||[])if(n.s<s%L&&s%L<n.s+n.l)ev.push({track:id,t,midi:n.p,vel:n.v??.8,dur:Math.max(.02,(n.s+n.l-s%L)*sd-.006)})}
+    const sc=scOf(id),st=s%trackLen(id);for(const n of sc[id]||[])if(n.s<st&&st<n.s+n.l)ev.push({track:id,t,midi:n.p,vel:n.v??.8,dur:Math.max(.02,(n.s+n.l-st)*sd-.006)})}
   for(const e of ev){const r=inst[e.track];if(!r||!r.eng)continue;
     if(TR[e.track].role==='drums')r.eng.hit(e.lane,e.vel,e.t);else{const d=stutter?Math.min(e.dur,stutter.len*sd-.006):e.dur;r.eng.noteOn(e.midi,e.vel,e.t);r.eng.noteOff(e.midi,e.t+d);
       const arr=liveNotes[e.track]||(liveNotes[e.track]=[]);arr.push({midi:e.midi,off:e.t+d});if(arr.length>64)arr.splice(0,arr.length-64)}}
-  for(const e of eventsForStep(P,sc,s%L,t,sd,P.swing,null))visQ.push({t:e.t,track:e.track});
-  visQ.push({t,step:i});
+  for(const e of eventsForStep(P,scOf,s,t,sd,P.swing,null))visQ.push({t:e.t,track:e.track});
+  visQ.push({t,step:s});
 }
 function draw(){if(!playing)return;const now=ac.currentTime;
-  while(visQ.length&&visQ[0].t<=now){const v=visQ.shift();if(v.track){if(audible(v.track))flash(v.track)}else if(v.step!=null)drawPlayhead(v.step)}
+  while(visQ.length&&visQ[0].t<=now){const v=visQ.shift();if(v.track){if(audible(v.track))flash(v.track)}else if(v.step!=null)drawPlayhead(v.step%trackLen(sel))}
   if(!$('#sheet').hidden&&mixerOpen)drawMeters();
   requestAnimationFrame(draw)}
 function flash(id){const el=actLamp[id];if(!el)return;el.classList.add('on');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('on'),90)}
@@ -270,15 +276,17 @@ const drumTrack=()=>TR[sel]&&TR[sel].role==='drums'?sel:(TRACKS.find(t=>t.role==
 function renderAll(){renderTop();renderScenes();renderTracks();renderEditor()}
 function renderTop(){$('#bpmBtn').textContent=Math.round(P.bpm)+' BPM';$('#keyBtn').textContent=keyName(P.key,P.scale)}
 function renderScenes(){const box=$('#scenes');box.innerHTML='';
-  for(const id of SCENE_IDS){const has=!!P.scenes[id];box.append(h('button',{class:'scene'+(has?' has':'')+(id===P.cur?' cur':'')+(queued===id?' queued':''),onclick:()=>chooseScene(id),'aria-label':'Szene '+id},id))}
+  for(const id of SCENE_IDS){const has=!!P.scenes[id];const on=TRACKS.filter(t=>P.tracks[t.id].scene===id).length;const st=on===TRACKS.length?' cur':on?' part':'';
+    box.append(h('button',{class:'scene'+(has?' has':'')+st+(queued&&queued.s===id?' queued':''),onclick:()=>chooseScene(id),title:'Alle Spuren auf Szene '+id,'aria-label':'Szene '+id},id))}
   $('#barsOut').textContent=scene().bars;$('#barsLbl').textContent=scene().bars===1?'Takt':'Takte'}
 const LAUNCH=[['bar','Nächster Takt'],['loop','Loop-Ende'],['now','Sofort']];
-function chooseScene(id){
+/* launch scene `id` for all tracks (scene row) or for some (per-track clip chips) */
+function chooseScene(id,ids=TRACKS.map(t=>t.id)){
   if(!P.scenes[id]){snapshot();P.scenes[id]=newScene(scene().bars);toast('Szene '+id+' angelegt (leer)')}
-  if(playing&&id!==P.cur){if(P.launch==='now'){switchScene(id,stepIdx);return}queued=id;renderScenes();return}
-  P.cur=id;persist();sceneChanged();renderScenes();renderEditor()}
-// scene switch during playback (like launching an Ableton scene): keeps the bar position
-function switchScene(id,atStep){P.cur=id;queued=null;stepIdx=atStep%sceneLen();loopT0=nextT-stepIdx*stepDur();sceneChanged();persist();renderScenes();renderEditor()}
+  const change=ids.filter(t=>P.tracks[t].scene!==id);
+  if(playing&&change.length){if(P.launch==='now'){switchScene(id,change);return}queued={s:id,ids:change};renderScenes();renderEditor();return}
+  for(const t of ids)P.tracks[t].scene=id;persist();sceneChanged(ids);renderScenes();renderEditor()}
+function switchScene(id,ids){for(const t of ids)P.tracks[t].scene=id;queued=null;sceneChanged(ids);persist();renderScenes();renderEditor()}
 function renderTracks(){const box=$('#tracks');box.innerHTML='';box.classList.toggle('many',TRACKS.length>4);
   for(const t of TRACKS){const st=P.tracks[t.id];const lamp=h('i',{class:'act'});actLamp[t.id]=lamp;
     const b=h('button',{class:'track'+(sel===t.id?' sel':'')+(!audible(t.id)?' muted':''),style:'--c:'+t.color,onclick:()=>{if(sel===t.id){openSound(t.id);return}sel=t.id;renderTracks();renderEditor();b.scrollIntoView({inline:'nearest',block:'nearest'})}},
@@ -301,6 +309,7 @@ function renderEditor(){
   const head=$('#edhead'),body=$('#edbody');const keep=body.scrollTop;head.innerHTML='';body.innerHTML='';const t=TR[sel],st=P.tracks[sel];
   document.querySelector('.editor').style.setProperty('--tc',t.color);
   head.append(h('b',{class:'brand',style:'font-size:17px'},t.name));
+  const clip=h('div',{class:'seg clips'});for(const sid of SCENE_IDS){const q=queued&&queued.s===sid&&queued.ids.includes(sel);clip.append(h('button',{class:(st.scene===sid?'on':'')+(q?' queued':'')+(P.scenes[sid]?'':' empty'),title:'Diese Spur auf Szene '+sid,onclick:()=>chooseScene(sid,[sel])},sid))}head.append(clip);
   if(t.role!=='drums'){const seg=h('div',{class:'seg'});for(const [v,l] of [['step','Step'],['roll','Roll'],['pads','Pads']])seg.append(h('button',{class:st.view===v?'on':'',onclick:()=>{st.view=v;persist();renderEditor()}},l));head.append(seg)}
   head.append(h('span',{class:'grow'}));
   if(t.role!=='drums')head.append(h('button',{class:'chip'+(st.arp&&st.arp.on?' on':''),onclick:()=>openArp(sel),title:'Arpeggiator'},st.arp&&st.arp.on?'Arp an':'Arp'));
@@ -515,7 +524,7 @@ function padEl(label,sub,notesFn,isRoot,chordDeg){
     if(recOn&&playing)recordNotes(id,held.notes,held.t0,ac.currentTime,chordDeg);held=null};
   el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);return el}
 function recordNotes(id,notes,t0,t1,chordDeg){const sc=scene(),L=sceneLen(sc),sd=stepDur();
-  const pos=((t0-loopT0)/sd);let s=((Math.round(pos)%L)+L)%L;const l=clamp(Math.round((t1-t0)/sd),1,16);
+  const pos=((t0-startT)/sd);let s=((Math.round(pos)%L)+L)%L;const l=clamp(Math.round((t1-t0)/sd),1,16);
   if(TR[id].role==='mono')sc[id]=sc[id].filter(n=>n.s!==s);
   for(const p of notes){sc[id]=sc[id].filter(n=>!(n.s===s&&n.p===p));const n={s,p,l,v:.85};if(TR[id].role==='chords'&&chordDeg!=null){n.c=chordDeg;n.inv=0}sc[id].push(n)}
   markEdit(id);persist()}
@@ -530,7 +539,7 @@ function fxFilterMove(e){const x=clamp(e.clientX/window.innerWidth,0,1);const f=
 function fxOn(kind,e){const t=ac.currentTime,F=fxNodes;
   if(kind==='filter'){fxFilterMove(e)}
   if(kind==='echo'){const sd=stepDur();F.echo.delayTime.setValueAtTime(sd*3,t);F.echoIn.gain.setTargetAtTime(1,t,.01);F.efb.gain.setTargetAtTime(.55,t,.01)}
-  if(kind==='stutter'&&playing){const cur=Math.floor(stepIdx/2)*2;stutter={from:cur%sceneLen(),base:stepIdx,len:2};for(const tr of TRACKS){const f=FZ[tr.id];if(f&&f.src){try{f.src.stop(nextT)}catch(_e){}f.src=null}}}
+  if(kind==='stutter'&&playing){const cur=Math.floor(stepIdx/2)*2;stutter={from:cur,base:stepIdx,len:2};for(const tr of TRACKS){const f=FZ[tr.id];if(f&&f.src){try{f.src.stop(nextT)}catch(_e){}f.src=null}}}
   if(kind==='tape'){const T=1.1,N=64,curve=new Float32Array(N);for(let i=0;i<N;i++){const tt=T*i/(N-1);curve[i]=tt*tt/(2*T)}F.tape.delayTime.cancelScheduledValues(t);F.tape.delayTime.setValueCurveAtTime(curve,t,T);F.tapeGain.gain.cancelScheduledValues(t);F.tapeGain.gain.setValueAtTime(1,t);F.tapeGain.gain.setTargetAtTime(0,t+T*.75,.08)}}
 function fxOff(kind){const t=ac.currentTime,F=fxNodes;
   if(kind==='filter'){F.filt.frequency.setTargetAtTime(20000,t,.06);F.filt.Q.setTargetAtTime(.7,t,.06)}
@@ -548,6 +557,9 @@ function openSound(id){const t=TR[id],st=P.tracks[id];
   openSheet(t.name+' · Klang',b=>{
     document.querySelector('.sheetbox').style.setProperty('--tc',t.color);
     const rec=inst[id];const eng=rec&&rec.eng;
+    const nm=h('input',{type:'text',value:t.name,id:'tname_'+id,maxlength:'18',placeholder:TYPES[t.type].name,'aria-label':'Spurname'});
+    nm.addEventListener('change',()=>{snapshot();st.name=nm.value.trim()||null;rebuildTracks();persist();renderTracks();renderEditor();$('#sheetTitle').textContent=TR[id].name+' · Klang'});
+    b.append(h('div',{class:'row'},h('span',{class:'small'},'Name:'),nm));
     b.append(h('img',{src:ENGINES[st.engine].img,alt:ENGINES[st.engine].name,class:'cover'+(st.engine==='pierrette'?' pix':'')}));
     if(t.choices.length>1){const row=h('div',{class:'row'});for(const e of t.choices)row.append(h('button',{class:'opt'+(st.engine===e?' on':''),onclick:async()=>{if(st.engine===e)return;snapshot();st.engine=e;st.patch=null;st.preset=null;st.macros=null;markEdit(id);persist();toast(ENGINES[e].name+' wird geladen…');await ensureEngine(id);openSound(id)}},ENGINES[e].name));b.append(h('div',{class:'sec'},h('h3',{},'Instrument'),row))}
     if(!eng){b.append(h('p',{class:'note'},'Instrument lädt …'));rec&&rec.ready&&rec.ready.then(()=>{if(!$('#sheet').hidden)openSound(id)});return}
@@ -589,24 +601,36 @@ function openArp(id){const st=P.tracks[id],a=st.arp||(st.arp={...ARP0});const t=
 /* mixer */
 function openMixer(){openSheet('Mixer',b=>{mixerOpen=true;document.querySelector('.sheetbox').style.setProperty('--tc','var(--fg)');
   for(const t of TRACKS){const st=P.tracks[t.id];
-    const fader=h('input',{type:'range',min:0,max:100,value:Math.round(Math.sqrt(st.vol/1.25)*100),id:'mix_'+t.id,'aria-label':t.name+' Lautstärke'});
+    const fader=h('input',{type:'range',min:0,max:1000,value:Math.round(volToFader(st.vol)*1000),id:'mix_'+t.id,'aria-label':t.name+' Lautstärke'});
     const out=h('output',{class:'mono'},dbStr(st.vol));
     fader.addEventListener('pointerdown',snapshot,{once:true});
-    fader.addEventListener('input',()=>{const x=fader.value/100;st.vol=+(x*x*1.25).toFixed(4);out.textContent=dbStr(st.vol);applyTrackGain(t.id);persist()});
+    fader.addEventListener('input',()=>{st.vol=+faderToVol(fader.value/1000).toFixed(5);out.textContent=dbStr(st.vol);applyTrackGain(t.id);persist()});
+    fader.addEventListener('dblclick',()=>{st.vol=1;fader.value=Math.round(volToFader(1)*1000);out.textContent=dbStr(1);applyTrackGain(t.id);persist()});
     const m=h('button',{class:'ms'+(st.mute?' on':''),onclick:()=>{snapshot();st.mute=!st.mute;applyAllGains();persist();openMixer()}},'M');
     const s=h('button',{class:'ms solo'+(st.solo?' on':''),onclick:()=>{snapshot();st.solo=!st.solo;applyAllGains();persist();openMixer()}},'S');
-    const bar=h('div',{class:'meter'},h('i',{id:'mt_'+t.id}));
+    const bar=h('div',{class:'meter'},h('i',{id:'mt_'+t.id}),h('b',{id:'mp_'+t.id}));
     b.append(h('div',{class:'strip'+(audible(t.id)?'':' off'),style:'--c:'+t.color},h('div',{class:'sname'},h('b',{},t.name),h('span',{class:'small'},ENGINES[st.engine].short)),m,s,h('div',{class:'sfader'},fader,bar),out))}
+  b.prepend(h('div',{class:'strip master'},h('div',{class:'sname'},h('b',{},'Summe'),h('span',{class:'small'},'vor Limiter')),h('div',{}),h('div',{}),h('div',{class:'sfader'},h('div',{class:'meter'},h('i',{id:'mt_master'}),h('b',{id:'mp_master'}))),h('output',{class:'mono',id:'mo_master'},'')));
+  b.append(h('p',{class:'note'},'Regler: −60 … +12 dB, Doppeltipp = 0 dB. Anzeige: grün = Spitze unter −6 dBFS, gelb = bis −1 dBFS, rot = darüber (Übersteuerung; der Limiter fängt es ab, aber es verzerrt).'));
   const res=h('p',{class:'note',id:'amres'},automixMsg);
   b.append(h('div',{class:'sec'},h('h3',{},'Automix'),h('p',{class:'note'},'Misst die Lautheit jeder Spur in der aktuellen Szene und stellt ein ausgewogenes Verhältnis ein: Drums als Bezug, Bass knapp darunter, Lead darüber, Akkorde dahinter. Mit „↶" zurück.'),
     h('div',{class:'row'},h('button',{class:'cta',onclick:async e=>{e.target.disabled=true;res.textContent='Messe …';try{automixMsg=await automix()}catch(err){automixMsg='Automix fehlgeschlagen: '+err.message}e.target.disabled=false;openMixer()}},'Automix'),
       h('button',{class:'opt',onclick:()=>{snapshot();for(const t of TRACKS){P.tracks[t.id].mute=false;P.tracks[t.id].solo=false}applyAllGains();persist();openMixer()}},'Alle an')),res));
 })}
-function drawMeters(){for(const t of TRACKS){const an=meter[t.id],el=document.getElementById('mt_'+t.id);if(!an||!el)continue;const d=new Float32Array(an.fftSize);an.getFloatTimeDomainData(d);let s=0;for(const x of d)s+=x*x;const db=10*Math.log10(s/d.length+1e-12);el.style.width=clamp((db+60)/60*100,0,100)+'%'}}
+/* fader law: 0..1 -> -60..+12 dB, linear in dB (0 dB at 5/6); 0 = off */
+const volToFader=v=>v<=0.001?0:clamp((20*Math.log10(v)+60)/72,0,1);
+const faderToVol=x=>x<=0?0:Math.pow(10,(x*72-60)/20);
+const peakHold={};
+function drawMeters(){const now=performance.now();
+  const one=(key,an)=>{const el=document.getElementById('mt_'+key),pk=document.getElementById('mp_'+key);if(!an||!el)return;const d=new Float32Array(an.fftSize);an.getFloatTimeDomainData(d);let p=0;for(const x of d){const a=Math.abs(x);if(a>p)p=a}
+    const db=20*Math.log10(p+1e-9);el.style.width=clamp((db+60)/60*100,0,100)+'%';el.className=db>-1?'red':db>-6?'yellow':'';
+    const hp=peakHold[key]||{db:-99,t:0};if(db>=hp.db||now-hp.t>1500){hp.db=db;hp.t=now}peakHold[key]=hp;if(pk){pk.style.left=clamp((hp.db+60)/60*100,0,100)+'%';pk.className=hp.db>-1?'red':hp.db>-6?'yellow':''}
+    if(key==='master'){const o=document.getElementById('mo_master');if(o)o.textContent=hp.db<-80?'':hp.db.toFixed(1)+' dBFS'}};
+  for(const t of TRACKS)one(t.id,meter[t.id]);one('master',meter.master)}
 async function automix(){
   initAudio();await Promise.all(TRACKS.map(t=>ensureEngine(t.id)));snapshot();
-  const sc=scene(),meas={};
-  for(const t of TRACKS){const id=t.id;if(!hasNotes(id,sc)||!inst[id].eng)continue;
+  const meas={};
+  for(const t of TRACKS){const id=t.id,sc=scOf(id);if(!hasNotes(id,sc)||!inst[id].eng)continue;
     let buf=FZ[id]&&FZ[id].buf&&FZ[id].sig===fzSig(id,sc)?FZ[id].buf:await fzRender(id,sc);meas[id]=await loudness(buf)}
   const ids=Object.keys(meas);if(!ids.length)throw Error('keine Noten in dieser Szene');
   const want={};for(const id of ids)want[id]=MIX_TARGET[typeOf(id)]-meas[id];const top=Math.max(...ids.map(id=>want[id]));
@@ -641,16 +665,20 @@ function openMenu(){openSheet('Projekt & Export',b=>{
   const lenRow=h('div',{class:'row'});const fillLen=()=>{lenRow.innerHTML='';for(const [k,l] of lens)lenRow.append(h('button',{class:'opt'+(len===k?' on':''),onclick:()=>{len=k;P.exportLen=k;persist();fillLen();info()}},l))};fillLen();
   const fade=h('input',{type:'checkbox',id:'fade'});fade.checked=P.exportFade!==false;fade.addEventListener('change',()=>{P.exportFade=fade.checked;persist()});
   const prog=h('div',{class:'progress'},h('i',{}));const status=h('p',{class:'note'});const result=h('div',{class:'row'});
-  const info=()=>{const segs=arrangement(len);const bars=segs.reduce((a,s)=>a+P.scenes[s.s].bars*s.n,0);status.textContent=bars+' Takte · '+(bars*4*60/P.bpm).toFixed(1)+' s'};info();
+  const info=()=>{const segs=arrangement(len);const bars=segs.reduce((a,s)=>a+(s.s?P.scenes[s.s].bars:maxLen()/16)*s.n,0);status.textContent=bars+' Takte · '+(bars*4*60/P.bpm).toFixed(1)+' s'};info();
   const progress=(f,msg)=>{prog.firstChild.style.width=Math.round(f*100)+'%';if(msg)status.textContent=msg};
-  const run=async btn=>{btn.disabled=true;result.innerHTML='';try{
+  const run=async(btn,withStems)=>{btn.disabled=true;result.innerHTML='';try{
       if(playing)stop();initAudio();await ac.resume();await Promise.all(TRACKS.map(t=>ensureEngine(t.id)));
-      const res=await exportAudio({P,segs:arrangement(len),inst,TRACKS,eventsForStep,fade:fade.checked,audible,progress});
+      const res=await exportAudio({P,segs:arrangement(len),inst,TRACKS,eventsForStep,fade:fade.checked&&!withStems,stems:withStems,audible,progress});
       const base=(P.name||'loopette').replace(/[^\wäöüÄÖÜß-]+/g,'_');
-      progress(.95,'MP3 wird kodiert …');const mp3=await encodeMp3(res.mix,256);offerFile(result,new File([mp3],base+'.mp3',{type:'audio/mpeg'}));
-      status.textContent='Fertig: MP3 256 kbit/s · '+res.mix.duration.toFixed(1)+' s · '+(mp3.size/1e6).toFixed(1)+' MB · Spitze '+res.peakDb.toFixed(1)+' dBFS';progress(1)}
+      progress(.8,'MP3 wird kodiert …');const mp3=await encodeMp3(res.mix,256);
+      if(!withStems){offerFile(result,new File([mp3],base+'.mp3',{type:'audio/mpeg'}));status.textContent='Fertig: MP3 256 kbit/s · '+res.mix.duration.toFixed(1)+' s · '+(mp3.size/1e6).toFixed(1)+' MB · Spitze '+res.peakDb.toFixed(1)+' dBFS';progress(1);return}
+      const files=[{name:base+'/'+base+'_Mix.mp3',blob:mp3}];let k=0;
+      for(const st of res.stems){progress(.8+.2*(k/res.stems.length),'FLAC: '+st.name+' …');const fl=await encodeFlac(st.buffer,24,f=>progress(.8+.2*((k+f)/res.stems.length)));files.push({name:base+'/Spuren/'+String(k+1).padStart(2,'0')+'_'+st.name.replace(/[^\wäöüÄÖÜß-]+/g,'_')+'.flac',blob:fl});k++}
+      const zip=await makeZip(files);offerFile(result,new File([zip],base+'.zip',{type:'application/zip'}));
+      status.textContent='Fertig: ZIP mit Mix (MP3) und '+res.stems.length+' Spuren (FLAC 24 bit, je exakt '+res.bars+' Takte = '+res.total.toFixed(2)+' s) · '+(zip.size/1e6).toFixed(1)+' MB';progress(1)}
     catch(e){console.error(e);status.textContent='Export fehlgeschlagen: '+e.message}btn.disabled=false};
-  b.append(h('div',{class:'sec'},h('h3',{},'Export'),lenRow,h('label',{class:'row small',for:'fade'},fade,'Am Ende ausblenden'),h('div',{class:'row'},h('button',{class:'cta',onclick:e=>run(e.target)},'MP3 exportieren')),h('div',{style:'height:8px'}),prog,status,result));
+  b.append(h('div',{class:'sec'},h('h3',{},'Export'),lenRow,h('label',{class:'row small',for:'fade'},fade,'Am Ende ausblenden'),h('div',{class:'row'},h('button',{class:'cta',onclick:e=>run(e.target,false)},'MP3 exportieren'),h('button',{class:'cta alt',onclick:e=>run(e.target,true)},'MP3 + Spuren (ZIP)')),h('p',{class:'note'},'Mit Spuren: jede Spur als FLAC, alle exakt gleich lang und taktgenau ab Takt 1; Hall- und Ausklang-Reste sind an den Anfang gelegt, so laufen die Spuren als Loop nahtlos. Ohne Ausblenden.'),h('div',{style:'height:8px'}),prog,status,result));
   const songBox=h('div',{class:'sec'});const fillSong=()=>{songBox.innerHTML='';songBox.append(h('h3',{},'Song (Szenen nacheinander)'));
     songBox.append(h('div',{class:'row'},h('button',{class:'opt'+(P.song.on?' on':''),onclick:()=>{P.song.on=!P.song.on;persist();fillSong()}},P.song.on?'Song-Modus an':'Song-Modus aus')));
     const list=h('div',{class:'row'});P.song.list.forEach((it,i)=>list.append(h('button',{class:'opt',title:'Tippen: Wiederholungen ändern',onclick:()=>{it.n=it.n>=8?1:it.n*2;persist();fillSong();info()}},it.s+' ×'+it.n),h('button',{class:'opt',onclick:()=>{P.song.list.splice(i,1);persist();fillSong();info()},'aria-label':'entfernen'},'×')));songBox.append(list);
@@ -666,10 +694,10 @@ function openMenu(){openSheet('Projekt & Export',b=>{
     h('button',{class:'opt',onclick:()=>{try{const o=JSON.parse(code.value.trim());if(!o.scenes||!o.tracks)throw Error('kein Loopette-Projekt');snapshot();P=migrate(o);loadProject();toast('Projekt geladen')}catch(e){toast('Code nicht lesbar: '+e.message)}}},'Code laden')),
     Object.keys(projs).length?h('div',{},h('div',{class:'small',style:'margin:8px 0 4px'},'Gespeicherte Projekte:'),plist):null,h('div',{style:'height:6px'}),code));
 })}
-function arrangement(len){if(len==='song'&&P.song.list.length)return P.song.list.filter(it=>P.scenes[it.s]).map(it=>({s:it.s,n:it.n}));const n=len==='scene1'?1:len==='scene4'?4:2;return [{s:P.cur,n}]}
+function arrangement(len){if(len==='song'&&P.song.list.length)return P.song.list.filter(it=>P.scenes[it.s]).map(it=>({s:it.s,n:it.n}));const n=len==='scene1'?1:len==='scene4'?4:2;return [{s:null,n}]}  // s:null = the current combination of per-track scenes
 function offerFile(box,file){const url=URL.createObjectURL(file);box.append(h('a',{class:'cta alt',href:url,download:file.name,style:'display:inline-grid;place-items:center;text-decoration:none'},'Speichern: '+file.name));
   if(navigator.canShare&&navigator.canShare({files:[file]}))box.append(h('button',{class:'cta',onclick:()=>navigator.share({files:[file],title:P.name}).catch(()=>{})},'Teilen …'))}
-function loadProject(){rebuildTracks();if(!TR[sel])sel=TRACKS[0].id;P.scenes.A=P.scenes.A||newScene(1);if(!P.scenes[P.cur])P.cur='A';for(const k of Object.keys(inst))if(!P.tracks[k])dropTrackRuntime(k);for(const t of TRACKS){ensureTrackNodes(t.id);ensureEngine(t.id);applyTrackGain(t.id)}syncPatches();sceneChanged();persist();closeSheet()}
+function loadProject(){rebuildTracks();if(!TR[sel])sel=TRACKS[0].id;P.scenes.A=P.scenes.A||newScene(1);for(const t of TRACKS)scOf(t.id);for(const k of Object.keys(inst))if(!P.tracks[k])dropTrackRuntime(k);for(const t of TRACKS){ensureTrackNodes(t.id);ensureEngine(t.id);applyTrackGain(t.id)}syncPatches();sceneChanged();persist();closeSheet()}
 
 /* ───────────── ideas (helpers, never automatic) ───────────── */
 function doIdea(id){snapshot();const sc=scene();
@@ -688,7 +716,7 @@ function setBars(nb){const sc=scene();nb=clamp(nb,1,MAX_BARS);if(nb===sc.bars)re
   if(nb>sc.bars){for(const d of dr)for(const k in sc[d]){const a=sc[d][k];const old=a.slice(0,oldL);while(a.length<L)a.push(old[a.length%oldL]||0)}
     for(const id of sy){const src=sc[id].slice();for(let off=oldL;off<L;off+=oldL)for(const n of src)if(n.s+off<L)sc[id].push({...n,s:n.s+off})}}
   else{for(const d of dr)for(const k in sc[d])sc[d][k].length=L;for(const id of sy){sc[id]=sc[id].filter(n=>n.s<L);sc[id].forEach(n=>n.l=Math.min(n.l,L-n.s))}}
-  sc.bars=nb;for(const c of chordTracks())recalcHold(P,sc,c);if(playing&&stepIdx>=L){stepIdx=stepIdx%L}TRACKS.forEach(t=>markEdit(t.id));persist();renderScenes();renderEditor()}
+  sc.bars=nb;for(const c of chordTracks())recalcHold(P,sc,c);TRACKS.forEach(t=>markEdit(t.id));persist();renderScenes();renderEditor()}
 
 /* ───────────── misc ───────────── */
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('show'),2400)}
@@ -696,7 +724,7 @@ $('#play').addEventListener('click',()=>playing?stop():start());
 $('#bpmBtn').addEventListener('click',openTempo);$('#keyBtn').addEventListener('click',openKey);$('#menuBtn').addEventListener('click',openMenu);$('#mixBtn').addEventListener('click',openMixer);
 $('#undoBtn').addEventListener('click',undo);
 $('#barsMinus').addEventListener('click',()=>setBars(scene().bars-1));$('#barsPlus').addEventListener('click',()=>setBars(scene().bars+1));
-$('#sceneCopy').addEventListener('click',()=>{const free=SCENE_IDS.find(s=>!P.scenes[s]);if(!free)return toast('Alle vier Szenen belegt');snapshot();P.scenes[free]=deep(scene());chooseScene(free);toast('Szene kopiert')});
+$('#sceneCopy').addEventListener('click',()=>{const free=SCENE_IDS.find(s=>!P.scenes[s]);if(!free)return toast('Alle vier Szenen belegt');snapshot();const ns={bars:scene().bars};for(const t of TRACKS)ns[t.id]=deep(scOf(t.id)[t.id]);P.scenes[free]=ns;chooseScene(free);toast('Szene kopiert')});
 document.addEventListener('keydown',e=>{if(e.target.matches('input,textarea'))return;if(e.code==='Space'){e.preventDefault();playing?stop():start()}if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo()}});
 $('#bootBtn').addEventListener('click',async()=>{initAudio();await ac.resume();$('#boot').hidden=true;await Promise.all(TRACKS.map(t=>ensureEngine(t.id)));freezeSoon()});
 setupFx();renderAll();
