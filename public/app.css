@@ -41,7 +41,9 @@ svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-l
 .scene.queued{border-color:var(--fg);animation:blink .5s steps(2) infinite}
 @keyframes blink{50%{border-color:transparent}}
 
-.tracks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--gap)}
+.tracks{display:flex;gap:var(--gap);overflow-x:auto;scrollbar-width:none;padding-bottom:1px}
+.track{flex:0 0 clamp(92px,21.5vw,150px)}
+.track.add{flex:0 0 54px;padding:8px 4px 9px;position:sticky;right:0;background:var(--bg);box-shadow:-8px 0 8px var(--bg)}
 .track{position:relative;text-align:left;padding:8px 9px 9px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line);min-width:0;overflow:hidden}
 .track::before{content:"";position:absolute;inset:0 0 auto 0;height:4px;background:var(--c)}
 .track .tn{display:block;font-family:var(--display);font-weight:800;font-stretch:112%;font-size:15px}
@@ -221,3 +223,11 @@ h1.brand{margin:0;line-height:0}
 .sheetbody{min-height:0}
 .starting .play{opacity:.5;animation:pulse .6s ease-in-out infinite alternate}
 @keyframes pulse{to{opacity:1}}
+/* dynamic tracks */
+.track.add{border-style:dashed;text-align:center;color:var(--dim)}
+.track.add::before{display:none}
+.track.add .tn{font-size:22px;line-height:1}
+/* half bars: 8 cells per row on phones */
+.beatrow.half{grid-template-columns:repeat(2,minmax(0,1fr))}
+.beatrow.half .cell{min-height:clamp(36px,6vh,56px)}
+.beatrow.half .cell.tall{min-height:clamp(46px,8vh,68px)}
