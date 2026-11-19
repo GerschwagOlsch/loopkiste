@@ -116,7 +116,7 @@ function revoiceChords(sc,tid='chords'){const steps=[...new Set(sc[tid].filter(n
   sc[tid]=sc[tid].filter(n=>n.c==null);info.forEach(i=>{placeChord(P,sc,i.s,i.c,i.inv,tid);sc[tid].filter(n=>n.s===i.s).forEach(n=>n.l=i.l)});recalcHold(P,sc,tid)}
 
 /* ───────────── audio ───────────── */
-let ac=null,bus=null,master=null,fxNodes=null;const inst={};const trackGain={};const meter={};const actLamp={};
+let ac=null,bus=null,master=null,fxNodes=null;const inst={};const trackGain={};const engOut={},engAn={},SL={};const meter={};const actLamp={};
 function initAudio(){
   if(ac)return;
   ac=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'playback'});
@@ -133,8 +133,8 @@ function initAudio(){
   fxNodes={filt,tape,tapeGain,echoIn,echo,efb};
   for(const t of TRACKS)ensureTrackNodes(t.id);
 }
-function ensureTrackNodes(id){if(!ac||trackGain[id])return;const g=ac.createGain();g.connect(bus);trackGain[id]=g;const an=ac.createAnalyser();an.fftSize=1024;g.connect(an);meter[id]=an;applyTrackGain(id)}
-function dropTrackRuntime(id){const r=inst[id];if(r&&r.eng)try{r.eng.dispose()}catch(_e){}delete inst[id];fzDrop(id);if(trackGain[id]){try{trackGain[id].disconnect()}catch(_e){}delete trackGain[id];delete meter[id]}}
+function ensureTrackNodes(id){if(!ac||trackGain[id])return;const g=ac.createGain();g.connect(bus);trackGain[id]=g;engOut[id]=ac.createGain();engAn[id]=ac.createAnalyser();engAn[id].fftSize=2048;slWake(id);const an=ac.createAnalyser();an.fftSize=1024;g.connect(an);meter[id]=an;applyTrackGain(id)}
+function dropTrackRuntime(id){const r=inst[id];if(r&&r.eng)try{r.eng.dispose()}catch(_e){}delete inst[id];fzDrop(id);if(engOut[id]){try{engOut[id].disconnect()}catch(_e){}delete engOut[id];delete engAn[id];delete SL[id]}if(trackGain[id]){try{trackGain[id].disconnect()}catch(_e){}delete trackGain[id];delete meter[id]}}
 const anySolo=()=>TRACKS.some(t=>P.tracks[t.id].solo);
 const audible=id=>{const t=P.tracks[id];return !t.mute&&(!anySolo()||t.solo)};
 function applyTrackGain(id){const g=trackGain[id];if(!g||!ac)return;g.gain.setTargetAtTime(audible(id)?P.tracks[id].vol:0,ac.currentTime,.015)}
@@ -144,7 +144,7 @@ async function ensureEngine(id){
   if(cur&&cur.engine===want)return cur.ready;
   if(cur){try{cur.eng&&cur.eng.dispose()}catch(_e){}}
   const rec={engine:want,eng:null};inst[id]=rec;fzDrop(id);
-  rec.ready=(async()=>{try{const mod=await (want==='dolly'?import('./engines/drumrack.js'):ENGINES[want].load());const eng=await mod.default(ac,{out:trackGain[id]});await eng.ready;if(inst[id]!==rec){eng.dispose();return}
+  rec.ready=(async()=>{try{const mod=await (want==='dolly'?import('./engines/drumrack.js'):ENGINES[want].load());slWake(id);const eng=slWrap(id,await mod.default(ac,{out:engOut[id]}));await eng.ready;if(inst[id]!==rec){eng.dispose();return}
     rec.eng=eng;
     if(t.patch){try{eng.setPatch(t.patch)}catch(e){console.warn(e)}}
     else{const pid=pickPreset(eng,id,want);if(pid!=null){eng.loadPreset(pid);t.preset=pid;t.patch=eng.getPatch()}}
@@ -157,6 +157,30 @@ function pickPreset(eng,tid,engId){const list=eng.presets();if(!list.length)retu
   for(const p of prefs){if(p.startsWith('#')){const c=p.slice(1).toUpperCase();const hit=list.find(x=>String(x.cat||'').toUpperCase()===c);if(hit)return hit.id}else{const hit=list.find(x=>x.name.toUpperCase().includes(p.toUpperCase()));if(hit)return hit.id}}
   return list[0].id}
 function syncPatches(){for(const t of TRACKS){const r=inst[t.id];if(r&&r.eng&&P.tracks[t.id].patch){try{r.eng.setPatch(P.tracks[t.id].patch)}catch(_e){}}}}
+
+/* ───────────── engine sleep ─────────────
+   A live engine costs audio-thread time even when it has nothing to play (PuSS-30, M1 and Sonique run their
+   DSP/effects continuously). While a track plays from its rendered loop, or nothing is playing, and the engine's
+   own output has decayed below the 16-bit resolution, its output is disconnected: the browser then stops
+   processing it altogether. Any note or hit reconnects it first. The DSP itself is untouched. */
+const SL_FLOOR=1/65536;let slBuf=null;
+function slWake(id){const o=engOut[id];if(!o)return;const st=SL[id]||(SL[id]={held:new Map(),until:0,quiet:0,asleep:true});st.quiet=0;
+  if(st.asleep){o.connect(trackGain[id]);o.connect(engAn[id]);st.asleep=false}}
+function slWrap(id,eng){const st=()=>SL[id]||(slWake(id),SL[id]);const on=eng.noteOn,off=eng.noteOff,hit=eng.hit,all=eng.allOff;
+  eng.noteOn=function(m,v,t){slWake(id);const s=st();s.held.set(m,(s.held.get(m)||0)+1);s.until=Math.max(s.until,t??0);return on.apply(eng,arguments)};
+  eng.noteOff=function(m,t){slWake(id);const s=st(),k=s.held.get(m)||0;if(k>1)s.held.set(m,k-1);else s.held.delete(m);s.until=Math.max(s.until,t??0);return off.apply(eng,arguments)};
+  eng.hit=function(l,v,t){slWake(id);const s=st();s.until=Math.max(s.until,t??0);return hit.apply(eng,arguments)};
+  eng.allOff=function(){const s=st();s.held.clear();return all&&all.apply(eng,arguments)};return eng}
+// the engine is needed live if the sequencer still plays it: not frozen at this moment, or in a stutter
+const slNeeded=(id,now)=>playing&&(stutter||!isFrozenAt(id,now)||resumeLive[id]);
+function slCheck(){if(!ac)return;const now=ac.currentTime;
+  for(const id in SL){const st=SL[id];if(st.asleep||!engAn[id])continue;
+    if(st.held.size||now<st.until||slNeeded(id,now)){st.quiet=0;continue}
+    const an=engAn[id];if(!slBuf||slBuf.length!==an.fftSize)slBuf=new Float32Array(an.fftSize);an.getFloatTimeDomainData(slBuf);
+    let pk=0;for(let i=0;i<slBuf.length;i++){const a=Math.abs(slBuf[i]);if(a>pk)pk=a}
+    // two consecutive quiet windows: the tail has decayed, not just crossed zero
+    if(pk<SL_FLOOR){if(++st.quiet>=2){try{engOut[id].disconnect()}catch(_e){}st.asleep=true;st.quiet=0}}else st.quiet=0}}
+setInterval(slCheck,250);
 
 /* ───────────── freeze: each track's loop is rendered offline and played back as audio ─────────────
    Live synthesis of four instruments at once overloads a phone's audio thread. As in the Nocturne
@@ -729,5 +753,5 @@ document.addEventListener('keydown',e=>{if(e.target.matches('input,textarea'))re
 $('#bootBtn').addEventListener('click',async()=>{initAudio();await ac.resume();$('#boot').hidden=true;await Promise.all(TRACKS.map(t=>ensureEngine(t.id)));freezeSoon()});
 setupFx();renderAll();
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
-window.__lk={get P(){return P},inst,FZ,start,stop,get ac(){return ac},ensureEngine,arrangement,exportAudio,eventsForStep,get TRACKS(){return TRACKS},automix,setBars,fzWork,addTrack,removeTrack,chooseScene};
+window.__lk={get P(){return P},inst,FZ,SL,meter,start,stop,get ac(){return ac},ensureEngine,arrangement,exportAudio,eventsForStep,get TRACKS(){return TRACKS},automix,setBars,fzWork,addTrack,removeTrack,chooseScene};
 let rsT=null;window.addEventListener('resize',()=>{if(wideCells!=null)return;clearTimeout(rsT);rsT=setTimeout(()=>renderEditor(),150)});
