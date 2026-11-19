@@ -159,13 +159,20 @@ function pickPreset(eng,tid,engId){const list=eng.presets();if(!list.length)retu
 function syncPatches(){for(const t of TRACKS){const r=inst[t.id];if(r&&r.eng&&P.tracks[t.id].patch){try{r.eng.setPatch(P.tracks[t.id].patch)}catch(_e){}}}}
 
 /* ───────────── engine sleep ─────────────
-   A live engine costs audio-thread time even when it has nothing to play (PuSS-30, M1 and Sonique run their
-   DSP/effects continuously). While a track plays from its rendered loop, or nothing is playing, and the engine's
-   own output has decayed below the 16-bit resolution, its output is disconnected: the browser then stops
-   processing it altogether. Any note or hit reconnects it first. The DSP itself is untouched. */
+   A live engine costs audio-thread time even when it has nothing to play: PuSS-30, M1 and Sonique run their
+   DSP/effects continuously, and in Pierrette every voice that was played once keeps rendering for good (its
+   DSP says so itself and offers a "sleep" for frozen slots, as the Workbench uses it). So the engine's output
+   is faded out and disconnected whenever its sound is not needed; the browser then stops processing it.
+   Any note or hit reconnects it first. The DSP itself is untouched.
+   - Playing, track plays its rendered loop: not needed as soon as its last live note has been released,
+     because the loop already contains everything that sounds from there on (incl. the release tails).
+   - Stopped (previews, pads): not needed once the tail is below the 16-bit resolution. Engines with a
+     permanent leak/noise floor (Pierrette's once-used voices) stay awake until playback starts again;
+     nothing else is playing then, so that costs battery, not sound. */
 const SL_FLOOR=1/65536;let slBuf=null;
-function slWake(id){const o=engOut[id];if(!o)return;const st=SL[id]||(SL[id]={held:new Map(),until:0,quiet:0,asleep:true});st.quiet=0;
-  if(st.asleep){o.connect(trackGain[id]);o.connect(engAn[id]);st.asleep=false}}
+function slWake(id){const o=engOut[id];if(!o)return;const st=SL[id]||(SL[id]={held:new Map(),until:0,quiet:0,asleep:true,fading:0});st.quiet=0;
+  if(st.fading){o.gain.cancelScheduledValues(0);o.gain.setValueAtTime(1,ac.currentTime);st.fading=0}
+  if(st.asleep){o.gain.cancelScheduledValues(0);o.gain.value=1;o.connect(trackGain[id]);o.connect(engAn[id]);st.asleep=false}}
 function slWrap(id,eng){const st=()=>SL[id]||(slWake(id),SL[id]);const on=eng.noteOn,off=eng.noteOff,hit=eng.hit,all=eng.allOff;
   eng.noteOn=function(m,v,t){slWake(id);const s=st();s.held.set(m,(s.held.get(m)||0)+1);s.until=Math.max(s.until,t??0);return on.apply(eng,arguments)};
   eng.noteOff=function(m,t){slWake(id);const s=st(),k=s.held.get(m)||0;if(k>1)s.held.set(m,k-1);else s.held.delete(m);s.until=Math.max(s.until,t??0);return off.apply(eng,arguments)};
@@ -173,13 +180,16 @@ function slWrap(id,eng){const st=()=>SL[id]||(slWake(id),SL[id]);const on=eng.no
   eng.allOff=function(){const s=st();s.held.clear();return all&&all.apply(eng,arguments)};return eng}
 // the engine is needed live if the sequencer still plays it: not frozen at this moment, or in a stutter
 const slNeeded=(id,now)=>playing&&(stutter||!isFrozenAt(id,now)||resumeLive[id]);
+function slSleep(id,st){const o=engOut[id],now=ac.currentTime;o.gain.cancelScheduledValues(0);o.gain.setValueAtTime(o.gain.value,now);o.gain.linearRampToValueAtTime(0,now+FADE);st.fading=now+FADE}
 function slCheck(){if(!ac)return;const now=ac.currentTime;
   for(const id in SL){const st=SL[id];if(st.asleep||!engAn[id])continue;
+    if(st.fading){if(now>=st.fading){try{engOut[id].disconnect()}catch(_e){}st.asleep=true;st.fading=0}continue}
     if(st.held.size||now<st.until||slNeeded(id,now)){st.quiet=0;continue}
+    if(playing){slSleep(id,st);continue}   // frozen loop carries the sound
     const an=engAn[id];if(!slBuf||slBuf.length!==an.fftSize)slBuf=new Float32Array(an.fftSize);an.getFloatTimeDomainData(slBuf);
     let pk=0;for(let i=0;i<slBuf.length;i++){const a=Math.abs(slBuf[i]);if(a>pk)pk=a}
-    // two consecutive quiet windows: the tail has decayed, not just crossed zero
-    if(pk<SL_FLOOR){if(++st.quiet>=2){try{engOut[id].disconnect()}catch(_e){}st.asleep=true;st.quiet=0}}else st.quiet=0}}
+    // two quiet windows in a row: the tail has decayed, not just crossed zero
+    if(pk<SL_FLOOR){if(++st.quiet>=2)slSleep(id,st)}else st.quiet=0}}
 setInterval(slCheck,250);
 
 /* ───────────── freeze: each track's loop is rendered offline and played back as audio ─────────────
