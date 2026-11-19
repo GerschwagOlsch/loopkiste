@@ -189,40 +189,67 @@ setInterval(slCheck,250);
 const FZ={};const fzCache=new Map();const fzInflight={};let fzTimer=null;const lastEdit={};const liveNotes={};const resumeLive={};
 function fzSig(id,sc=scOf(id)){const t=P.tracks[id];return JSON.stringify([t.engine,t.patch,t.macros||null,t.arp&&t.arp.on?t.arp:0,sc[id],sc.bars,Math.round(P.bpm*100),P.swing,ac?ac.sampleRate:0])}
 function freezeSoon(){clearTimeout(fzTimer);fzTimer=setTimeout(fzWork,650)}
-function fzDrop(id){const f=FZ[id];if(f&&f.src){try{f.src.stop()}catch(_e){}}FZ[id]=null}
+function fzDrop(id){const f=FZ[id];if(f&&f.src){try{f.src.stop()}catch(_e){}}FZ[id]=null;const j=fzInflight[id];if(j){j.ctl.abort();delete fzInflight[id]}}
 const hasNotes=(id,sc)=>typeOf(id)==='drums'?Object.values(sc[id]||{}).some(a=>a.some(v=>v)):(sc[id]||[]).length>0;
+/* What a sound costs on this device: seconds of computing per second of audio, measured while its loop renders
+   (same DSP as live). A track may play live after an edit only if this device rendered its sound faster than
+   real time, counting every track that would be live at the same moment. Otherwise its previous loop keeps
+   playing until the new one is rendered, so the audio thread is never asked for more than it can do. */
+const FZL=new Map();
+const fzKey=id=>{const t=P.tracks[id];return JSON.stringify([t.engine,t.patch,t.macros||null,t.arp&&t.arp.on?t.arp:0,ac?ac.sampleRate:0])};
+function liveLoad(except){if(!playing)return 0;const now=ac.currentTime;let s=0;
+  for(const t of TRACKS){const id=t.id;if(id===except||!inst[id]||!inst[id].eng||isFrozenAt(id,now)||!hasNotes(id,scOf(id)))continue;const L=FZL.get(fzKey(id));s+=L==null?1:L}return s}
+const liveOK=(id,L=FZL.get(fzKey(id)))=>L!=null&&L+liveLoad(id)<1;
+const FADE=.01;   // crossfade when a loop is swapped mid-way (as in the Workbench)
 // All stale tracks render at the same time (the engines render in Workers / offline contexts, so a phone's cores share the work).
 function fzWork(){
   if(!ac)return Promise.resolve();
   const jobs=[];
   for(const t of TRACKS){const id=t.id,r=inst[id];if(!r||!r.eng)continue;const sc=scOf(id),sig=fzSig(id,sc);
-    if(FZ[id]&&FZ[id].sig===sig)continue;
-    if(FZ[id]&&FZ[id].sig!==sig)fzRelease(id);
-    const cached=fzCache.get(sig);if(cached){FZ[id]={sig,buf:cached,src:null,from:0};fzEngage(id);continue}
-    if(fzInflight[id]){jobs.push(fzInflight[id]);continue}
+    if(FZ[id]&&FZ[id].sig===sig){if(FZ[id].stale){FZ[id].stale=false;const j=fzInflight[id];if(j){j.ctl.abort();delete fzInflight[id]}renderTracks()}continue}
+    const j=fzInflight[id];if(j){if(j.sig===sig){jobs.push(j.p);continue}j.ctl.abort();delete fzInflight[id]}   // an outdated render is cancelled, not waited for
+    const cached=fzCache.get(sig);if(cached){fzSwap(id,{sig,buf:cached});continue}
+    if(FZ[id]&&!FZ[id].stale)fzRelease(id);   // a stale loop keeps playing until its successor is ready
     if(Date.now()-(lastEdit[id]||0)<600){freezeSoon();continue}
-    const job=(async()=>{try{const t0=performance.now();const buf=await fzRender(id,sc);console.info('freeze '+id+' '+Math.round(performance.now()-t0)+' ms');
-        if(fzSig(id)===sig){fzCache.set(sig,buf);if(fzCache.size>24)fzCache.delete(fzCache.keys().next().value);FZ[id]={sig,buf,src:null,from:0};fzEngage(id)}else freezeSoon()}
-      catch(e){console.warn('freeze',id,e)}finally{delete fzInflight[id];renderTracks()}})();
-    fzInflight[id]=job;jobs.push(job)}
+    const ctl=new AbortController(),key=fzKey(id);
+    const p=(async()=>{try{const t0=performance.now();
+        const {buf,dur}=await fzRender(id,sc,{signal:ctl.signal,onProgress:(ta,ms)=>{const L=ms/1000/ta;FZL.set(key,L);
+          if(FZ[id]&&FZ[id].stale&&fzSig(id)===sig&&liveOK(id,L))fzGoLive(id)}});
+        const ms=performance.now()-t0;FZL.set(key,ms/1000/dur);console.info('freeze '+id+' '+Math.round(ms)+' ms');
+        if(fzSig(id)===sig){fzCache.set(sig,buf);if(fzCache.size>24)fzCache.delete(fzCache.keys().next().value);fzSwap(id,{sig,buf})}else freezeSoon()}
+      catch(e){if(e&&e.name!=='AbortError')console.warn('freeze',id,e)}finally{if(fzInflight[id]&&fzInflight[id].ctl===ctl)delete fzInflight[id];renderTracks()}})();
+    fzInflight[id]={sig,ctl,p};jobs.push(p)}
   return Promise.all(jobs);
 }
-async function fzRender(id,sc){const sd=stepDur(),L=sceneLen(sc),sr=ac.sampleRate,loopSec=L*sd;const ev=[];
-  const n=Math.round(loopSec*sr);if(!hasNotes(id,sc))return new AudioBuffer({numberOfChannels:2,length:n,sampleRate:sr});
+async function fzRender(id,sc,opt={}){const sd=stepDur(),L=sceneLen(sc),sr=ac.sampleRate,loopSec=L*sd;const ev=[];
+  const n=Math.round(loopSec*sr);if(!hasNotes(id,sc))return {buf:new AudioBuffer({numberOfChannels:2,length:n,sampleRate:sr}),dur:1e9};
   for(let rep=0;rep<2;rep++)for(let i=0;i<L;i++)for(const e of eventsForStep(P,()=>sc,i,(rep*L+i)*sd,sd,P.swing,x=>x===id))ev.push(typeOf(id)==='drums'?{t:e.t,lane:e.lane,vel:e.vel}:{t:e.t,midi:e.midi,vel:e.vel,dur:e.dur});
-  const stem=await inst[id].eng.renderStem({sampleRate:sr,durationSec:2*loopSec+.05,events:ev});
+  const dur=2*loopSec+.05;const stem=await inst[id].eng.renderStem({sampleRate:sr,durationSec:dur,events:ev,signal:opt.signal,onProgress:opt.onProgress});
+  if(opt.signal&&opt.signal.aborted)throw new DOMException('render aborted','AbortError');
   // second pass = steady state: tails of the previous pass are already inside, so the loop is seamless
   const out=new AudioBuffer({numberOfChannels:2,length:n,sampleRate:sr});const a=Math.round(loopSec*sr);
   for(let c=0;c<2;c++){const src=stem.getChannelData(Math.min(c,stem.numberOfChannels-1));out.copyToChannel(src.subarray(a,a+n),c)}
-  return out}
+  return {buf:out,dur}}
 const trackLen=id=>sceneLen(scOf(id));
-function fzEngage(id){const f=FZ[id];if(!f||!playing||f.src||stutter)return;const t=nextT;fzStart(id,t,(stepIdx%trackLen(id))*stepDur());liveSilence(id,t)}
+function fzEngage(id,fade=false){const f=FZ[id];if(!f||!playing||f.src||stutter)return;const t=nextT;fzStart(id,t,(stepIdx%trackLen(id))*stepDur(),fade);liveSilence(id,t)}
 // live notes of a track that would still sound after `t` are released there (the frozen buffer takes over)
 function liveSilence(id,t){const r=inst[id],arr=liveNotes[id]||[];if(r&&r.eng)for(const n of arr)if(n.off>t+1e-4){if(typeOf(id)==='drums')continue;r.eng.noteOff(n.midi,t)}liveNotes[id]=[]}
-function fzStart(id,t,offset){const f=FZ[id];if(!f)return;const loopSec=trackLen(id)*stepDur();if(offset>=loopSec-1e-6)return;const s=ac.createBufferSource();s.buffer=f.buf;s.connect(trackGain[id]);s.start(t,offset);s.stop(t+loopSec-offset);f.src=s;f.from=t;f.until=t+loopSec-offset;s.onended=()=>{if(f.src===s)f.src=null}}
-function fzRelease(id){const f=FZ[id];if(!f)return;if(f.src){try{f.src.stop(playing?nextT:0)}catch(_e){}}f.src=null;FZ[id]=null;f.cut=nextT}
+function fzStart(id,t,offset,fade=false){const f=FZ[id];if(!f)return;const loopSec=trackLen(id)*stepDur();if(offset>=loopSec-1e-6)return;const s=ac.createBufferSource();s.buffer=f.buf;
+  const g=ac.createGain();s.connect(g);g.connect(trackGain[id]);if(fade){g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(1,t+FADE)}
+  s.start(t,offset);s.stop(t+loopSec-offset);f.src=s;f.g=g;f.from=t;f.until=t+loopSec-offset;s.onended=()=>{try{g.disconnect()}catch(_e){}if(f.src===s)f.src=null}}
+// stop a loop at t; fade=true: short fade instead of a hard cut (used when it is replaced mid-way)
+function fzStop(f,t,fade){if(!f||!f.src)return;try{if(fade&&f.g){f.g.gain.setValueAtTime(1,t);f.g.gain.linearRampToValueAtTime(0,t+FADE);f.src.stop(t+FADE)}else f.src.stop(t)}catch(_e){}}
+function fzRelease(id){const f=FZ[id];if(!f)return;fzStop(f,playing?nextT:0,false);f.src=null;FZ[id]=null;f.cut=nextT}
+// the new loop replaces the old one (stale or not) at the next step, crossfaded
+function fzSwap(id,nf){const old=FZ[id];const mid=!!(old&&old.src&&playing);if(old)fzStop(old,playing?nextT:0,mid);FZ[id]={sig:nf.sig,buf:nf.buf,src:null,from:0};fzEngage(id,mid);renderTracks()}
+// a stale track whose sound turned out affordable: from the next step on it plays live
+function fzGoLive(id){const f=FZ[id];if(!f)return;fzStop(f,nextT,true);FZ[id]=null;resumeLive[id]=true;renderTracks()}
 const isFrozenAt=(id,t)=>{const f=FZ[id];return !!(f&&f.src&&t>=f.from-1e-6)};
-function markEdit(id){lastEdit[id]=Date.now();const f=FZ[id];if(f){const cut=playing?nextT:0;if(f.src){try{f.src.stop(cut)}catch(_e){}}FZ[id]=null;if(playing)resumeLive[id]=true}}
+// kind 'sound': instrument/preset/patch changed → render at once (no debounce), older render of this track cancelled
+function markEdit(id,kind){lastEdit[id]=kind==='sound'?0:Date.now();const f=FZ[id];
+  if(f){if(playing&&f.src&&!liveOK(id)){f.stale=true;renderTracks()}
+    else{if(f.src)fzStop(f,playing?nextT:0,playing);FZ[id]=null;if(playing)resumeLive[id]=true}}
+  if(kind==='sound')fzWork()}
 
 /* ───────────── sequencer ─────────────
    One step clock for all tracks. Every track plays its own scene (clip) and loops at that scene's length,
@@ -236,7 +263,7 @@ async function start(){initAudio();ac.resume();if(playing||starting)return;
   if(P.song.on&&P.song.list.length&&P.scenes[P.song.list[0].s])for(const t of TRACKS)P.tracks[t.id].scene=P.song.list[0].s;
   // Before the first bar every track should play from its rendered loop: several live synths overload a phone.
   const need=TRACKS.filter(t=>inst[t.id]&&inst[t.id].eng&&hasNotes(t.id,scOf(t.id))&&!(FZ[t.id]&&FZ[t.id].sig===fzSig(t.id)));
-  if(need.length){starting=true;document.body.classList.add('starting');toast('Spuren werden vorbereitet …');try{await Promise.race([fzWork(),new Promise(r=>setTimeout(r,8000))])}finally{starting=false;document.body.classList.remove('starting')}}
+  if(need.length){starting=true;document.body.classList.add('starting');toast('Spuren werden vorbereitet …');try{await fzWork()}finally{starting=false;document.body.classList.remove('starting')}}
   if(playing)return;playing=true;document.body.classList.add('playing');
   stepIdx=0;nextT=ac.currentTime+.08;startT=nextT;songIdx=0;songRep=0;renderScenes();
   timer=setInterval(tick,25);tick();requestAnimationFrame(draw);freezeSoon()}
@@ -314,7 +341,7 @@ function switchScene(id,ids){for(const t of ids)P.tracks[t].scene=id;queued=null
 function renderTracks(){const box=$('#tracks');box.innerHTML='';box.classList.toggle('many',TRACKS.length>4);
   for(const t of TRACKS){const st=P.tracks[t.id];const lamp=h('i',{class:'act'});actLamp[t.id]=lamp;
     const b=h('button',{class:'track'+(sel===t.id?' sel':'')+(!audible(t.id)?' muted':''),style:'--c:'+t.color,onclick:()=>{if(sel===t.id){openSound(t.id);return}sel=t.id;renderTracks();renderEditor();b.scrollIntoView({inline:'nearest',block:'nearest'})}},
-      lamp,h('span',{class:'tn'},t.name),h('span',{class:'te'},ENGINES[st.engine].short+(st.solo?' · solo':st.mute?' · stumm':'')));
+      lamp,h('span',{class:'tn'},t.name),h('span',{class:'te'},ENGINES[st.engine].short+(st.solo?' · solo':st.mute?' · stumm':'')+(FZ[t.id]&&FZ[t.id].stale?' · rendert':'')));
     box.append(b)}
   box.append(h('button',{class:'track add',title:'Spur hinzufügen',onclick:openAddTrack},h('span',{class:'tn'},'+'),h('span',{class:'te'},'Spur')));
   document.querySelector('.editor').style.setProperty('--tc',TR[sel].color)}
@@ -590,7 +617,7 @@ function openSound(id){const t=TR[id],st=P.tracks[id];
     const list=eng.presets();const cats=[...new Set(list.map(p=>p.cat||'—'))];let cat=st.presetCat&&cats.includes(st.presetCat)?st.presetCat:(list.find(p=>p.id===st.preset)?.cat||cats[0]);
     const catRow=h('div',{class:'row'}),plist=h('div',{class:'plist'});
     const fill=()=>{catRow.innerHTML='';plist.innerHTML='';for(const c of cats)catRow.append(h('button',{class:'opt'+(c===cat?' on':''),onclick:()=>{cat=c;st.presetCat=c;fill()}},c));
-      for(const p of list.filter(p=>(p.cat||'—')===cat))plist.append(h('button',{class:p.id===st.preset?'on':'',title:p.name,onclick:()=>{snapshot();eng.loadPreset(p.id);st.preset=p.id;st.macros=null;st.patch=eng.getPatch();markEdit(id);persist();fill();renderKnobs();previewSound(id)}},p.name))};
+      for(const p of list.filter(p=>(p.cat||'—')===cat))plist.append(h('button',{class:p.id===st.preset?'on':'',title:p.name,onclick:()=>{snapshot();eng.loadPreset(p.id);st.preset=p.id;st.macros=null;st.patch=eng.getPatch();markEdit(id,'sound');persist();fill();renderKnobs();previewSound(id)}},p.name))};
     fill();
     b.append(h('div',{class:'sec'},h('h3',{},'Klänge'),catRow,h('div',{style:'height:6px'}),plist));
     const knobs=h('div',{class:'knobs'});
@@ -602,7 +629,7 @@ function openSound(id){const t=TR[id],st=P.tracks[id];
     const ta=h('textarea',{placeholder:'Patch aus der Nocturne Workbench hier einfügen (JSON oder ganze KI-Antwort)',id:'paste_'+id});
     b.append(h('div',{class:'sec'},h('h3',{},'Patch tauschen'),h('div',{class:'row'},
       h('button',{class:'opt',onclick:async()=>{const txt=JSON.stringify(eng.getPatch(),null,2);try{await navigator.clipboard.writeText(txt);toast('Patch kopiert')}catch(_e){ta.value=txt;ta.select();toast('Text markiert – bitte kopieren')}}},'Patch kopieren'),
-      h('button',{class:'opt',onclick:()=>{try{snapshot();eng.setPatch(ta.value);st.patch=eng.getPatch();st.preset=null;st.macros=null;markEdit(id);persist();renderKnobs();toast('Patch übernommen');previewSound(id)}catch(e){toast('Patch nicht lesbar: '+e.message)}}},'Einfügen übernehmen')),h('div',{style:'height:6px'}),ta));
+      h('button',{class:'opt',onclick:()=>{try{snapshot();eng.setPatch(ta.value);st.patch=eng.getPatch();st.preset=null;st.macros=null;markEdit(id,'sound');persist();renderKnobs();toast('Patch übernommen');previewSound(id)}catch(e){toast('Patch nicht lesbar: '+e.message)}}},'Einfügen übernehmen')),h('div',{style:'height:6px'}),ta));
     b.append(h('p',{class:'note'},'Lautstärke, Stumm und Solo: im Mixer (Taste „Mix" oben).'));
     b.append(h('div',{class:'row'},h('button',{class:'opt ghost',onclick:()=>removeTrack(id)},'Spur entfernen')));
   })}

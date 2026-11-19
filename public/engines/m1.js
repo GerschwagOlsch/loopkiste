@@ -1,3 +1,4 @@
+import {runOffline} from './offctl.js';
 // M1 PCM engine for Loopkiste. Engine code = NWB m1.html ("M1 Factory Program Player v12"), VERBATIM
 // (see tools/build_m1.js). New here: the factory wrapper, the DOM stub the player's status/LCD calls
 // write into, output routing, categories, macros and the offline render (same procedure as the NWB
@@ -1662,13 +1663,14 @@ export default async function create(ctx,{out}={}){
     noteOff(m,t){const q=pend.get(m);if(!q||!q.length){core.noteOff(m,t);return}const g=q.shift();Promise.resolve(g).then(id=>core.noteOff(m,t,id))},
     lanes:()=>[],hit(){},
     allOff(){pend.clear();core.panic(true)},
-    async renderStem({sampleRate=48000,durationSec,events=[]}={}){
+    async renderStem({sampleRate=48000,durationSec,events=[],signal,onProgress}={}){
       const off=new OfflineAudioContext(2,Math.ceil(durationSec*sampleRate),sampleRate);
       const c=makeCore(pcm);c.setState(core.state,{...core.params},core.current);c.setOffline(true);c.init(off,{ui:false,immediate:true});
       const ev=[...events].sort((a,b)=>a.t-b.t);
       for(const e of ev){c.prune(e.t);const vel=Math.max(1,Math.min(127,Math.round((e.vel??.8)*127)));
         const gid=await c.noteOn(e.midi,vel,e.t);if(c.state.mode!==2)c.noteOff(e.midi,e.t+Math.max(.01,e.dur),gid)}
-      return off.startRendering()},
+      if(signal&&signal.aborted)throw new DOMException('render aborted','AbortError');
+      return runOffline(off,durationSec,{signal,onProgress,cut:()=>c.limiter.disconnect()})},
     dispose(){try{core.panic(true);core.limiter.disconnect()}catch(_e){}}};
   return eng;
 }

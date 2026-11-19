@@ -56,7 +56,7 @@ export default async function create(ctx,{out}={}){
     noteOn(midi,vel,time){if(!node)return;const t=Math.max(ctx.currentTime,time??ctx.currentTime);const slot=alloc.on(midi,t);node.port.postMessage({t:'loopOn',slot,note:midi,freq:dividerFreq(midi),p:CORE[VOICE],vel:Math.max(.22,Math.min(1,vel??.8)),when:t})},
     noteOff(midi,time){if(!node)return;const t=Math.max(ctx.currentTime,time??ctx.currentTime);const slot=alloc.off(midi,t);if(slot>=0)node.port.postMessage({t:'loopOff',slot,when:t})},
     allOff(){if(!node)return;node.port.postMessage({t:'loopAllOff',flush:true});alloc.reset()},
-    async renderStem({sampleRate=48000,durationSec,events=[],patch:pp}={}){
+    async renderStem({sampleRate=48000,durationSec,events=[],patch:pp,signal,onProgress}={}){
       const p=pp?patchFromAny(pp):patch;
       const off=new OfflineAudioContext(2,Math.ceil(durationSec*sampleRate),sampleRate);await ensureModule(off);
       const sorted=[...events].sort((a,b)=>a.t-b.t),al=new SlotAlloc(),pre=[{t:'cfg',mode:'turbo',poly:p.synth.poly,s:p.synth}],offs=[];
@@ -66,7 +66,7 @@ export default async function create(ctx,{out}={}){
       for(const o of offs){const sl=al.off(o.midi,o.t);if(sl>=0)pre.push({t:'loopOff',slot:sl,when:o.t})}
       const n=new AudioWorkletNode(off,'pss30-turbo',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[2],processorOptions:{preload:pre}});
       const g=buildOutput(off,n);applyFxTo(g.fx,p.synth,true);g.master.connect(off.destination);
-      return off.startRendering()},
+      return runOffline(off,durationSec,{signal,onProgress,cut:()=>g.master.disconnect()})},
     dispose(){try{node&&node.disconnect();outGain.disconnect()}catch(_e){}}
   };
   return api;

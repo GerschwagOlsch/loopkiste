@@ -229,13 +229,14 @@ function toOriginalEvents(events) {
 
 /* The original offline path (sonique_bridge.js renderEvents), parameterised
    instead of reading the DOM: same worker source, same message, same loop. */
-async function renderEventsOriginalPath({ romBuffers, patch, volume, controllers, events, sr, duration, tail, gain }) {
+async function renderEventsOriginalPath({ romBuffers, patch, volume, controllers, events, sr, duration, tail, gain, signal }) {
   const url = URL.createObjectURL(new Blob([DSP_SRC, RENDER_WORKER_TAIL], { type: 'text/javascript' }));
   const w = new Worker(url); let timer;
   try {
     return await new Promise((resolve, reject) => {
       timer = setTimeout(() => reject(Error('Sonique export timeout')), 120000);
       w.onerror = e => reject(Error(e.message));
+      if (signal) { if (signal.aborted) reject(new DOMException('render aborted', 'AbortError')); else signal.addEventListener('abort', () => reject(new DOMException('render aborted', 'AbortError')), { once: true }); }
       w.onmessage = e => { if (e.data.error) reject(Error(e.data.error)); else resolve({ left: new Float32Array(e.data.left), right: new Float32Array(e.data.right) }); };
       w.postMessage({ roms: romBuffers, patch, volume, controllers, events, sr, duration, tail, gain });
     });
@@ -353,7 +354,7 @@ export default async function create(ctx, { out } = {}) {
       } else post({ type: 'unsched' });      // immediate panic, = original panic()
     },
 
-    async renderStem({ sampleRate, durationSec, events, patch, macros } = {}) {
+    async renderStem({ sampleRate, durationSec, events, patch, macros, signal } = {}) {
       await ready;
       const sr = Math.round(sampleRate || ctx.sampleRate);
       const dur = Math.max(1 / sr, +durationSec || 0);
@@ -362,7 +363,7 @@ export default async function create(ctx, { out } = {}) {
       const res = await renderEventsOriginalPath({
         romBuffers: L.romBuffers, patch: engineReadyPatch(p, m), volume: L.lib.volGain(VOLUME_SLIDER),
         controllers: { ...CONTROLLERS, sustain: false }, events: toOriginalEvents(events),
-        sr, duration: dur, tail: 0, gain: OUTPUT_GAIN });
+        sr, duration: dur, tail: 0, gain: OUTPUT_GAIN, signal });
       const buf = new AudioBuffer({ numberOfChannels: 2, length: res.left.length, sampleRate: sr });
       buf.copyToChannel(res.left, 0); buf.copyToChannel(res.right, 1);
       return buf;

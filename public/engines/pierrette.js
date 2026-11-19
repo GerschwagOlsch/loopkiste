@@ -1,4 +1,5 @@
 import {SHIM} from './wshim.js';
+import {runOffline} from './offctl.js';
 // Loopkiste engine: Pierrette 101.1 (Roland SH-101 circuit emulation)
 // ---------------------------------------------------------------------------
 // DSP: ./pierrette_worklet.js is a byte-identical copy of NWB
@@ -300,7 +301,7 @@ export default async function create(ctx, { out } = {}) {
     // Same DSP as live: OfflineAudioContext + the identical worklet; state and
     // events go in via processorOptions.initMessages (as NWB workbench.html does),
     // so nothing depends on MessagePort delivery timing.
-    async renderStem({ sampleRate, durationSec, events, patch: p, bpm, raw = false } = {}) {
+    async renderStem({ sampleRate, durationSec, events, patch: p, bpm, raw = false, signal, onProgress } = {}) {
       const sr = sampleRate || ctx.sampleRate || 48000;
       const length = Math.max(1, Math.ceil((durationSec || 0) * sr));
       const rp = p ? normalizePatch(p) : { ...patch };
@@ -328,7 +329,7 @@ export default async function create(ctx, { out } = {}) {
       } else {
         n.connect(off.destination);
       }
-      return off.startRendering();
+      return runOffline(off, length / sr, { signal, onProgress, cut: () => n.disconnect() });
     },
 
     // Extra: wrapper output gain (DSP untouched). Applies live and to renderStem.
